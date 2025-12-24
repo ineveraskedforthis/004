@@ -1,0 +1,53 @@
+object{
+	name{fighter}
+	size{3000}
+	storage_type{erasable}
+	property{
+		name{x}
+		type{float}
+	}
+	property{
+		name{y}
+		type{float}
+	}
+	property{
+		name{rotation}
+		type{float}
+	}
+        property{
+                name{size}
+                type{float}
+        }
+        property{
+		name{sprite_id}
+		type{uint16_t}
+	}
+}
+
+object{
+	name{player}
+	size{200}
+	storage_type{erasable}
+	property{
+		name{name}
+		type{uint16_t}
+	}
+}
+
+relationship{
+	name{player_control}
+	size{3000}
+	storage_type{erasable}
+
+	link{
+		object{player}
+		name{controller}
+		type{unique}
+	}
+
+	link{
+		object{fighter}
+		name{controlled}
+		type{unique}
+	}
+}

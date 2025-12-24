@@ -1,0 +1,23 @@
+cpp_compiler = clang++
+cpp_standard = -std=c++20
+
+dcon_includes_common = -I./DataContainer/CommonIncludes
+dcon_includes = -I./DataContainer/DataContainerGenerator
+
+rule compile_dcon
+  command = $cpp_compiler $cpp_standard $dcon_includes $dcon_includes_common -ferror-limit=1 $in -o $out
+
+
+rule compile_server
+  command = $cpp_compiler -O2 -Wall -Wno-unused-variable -DAVX2 $cpp_standard $dcon_includes $dcon_includes_common -ferror-limit=1 $in -o $out
+
+rule use
+  command = ./DCON $in
+  restat = 1
+
+build DCON : compile_dcon DataContainer/DataContainerGenerator/DataContainerGenerator.cpp DataContainer/DataContainerGenerator/parsing.cpp DataContainer/DataContainerGenerator/code_fragments.cpp DataContainer/DataContainerGenerator/query_fragments.cpp DataContainer/DataContainerGenerator/object_member_fragments.cpp DataContainer/DataContainerGenerator/serialize_fragments.cpp
+
+build data.hpp | data_ids.hpp : use ./data.txt | DCON
+
+build server.exe : compile_server main.cpp
+

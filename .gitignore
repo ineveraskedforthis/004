@@ -1,0 +1,7 @@
+DataContainer*
+DCON
+.ninja_log
+compilation_database.json
+data.hpp
+data_ids.hpp
+server.exe
