@@ -12,6 +12,11 @@ object{
 	}
 
 	property{
+		name{hp}
+		type{int}
+	}
+
+	property{
 		name{speed_x}
 		type{float}
 	}
@@ -41,6 +46,14 @@ object{
 		name{spell_target_y}
 		type{float}
 	}
+	property{
+		name{parry_progress}
+		type{float}
+	}
+	property{
+		name{no_damage_timer}
+		type{float}
+	}
 
 	property{
 		name{rotation}
@@ -53,6 +66,61 @@ object{
         property{
 		name{sprite_id}
 		type{uint16_t}
+	}
+}
+
+object{
+	name{projectile}
+	size{10000}
+	storage_type{erasable}
+
+	property{
+		name{x}
+		type{float}
+	}
+	property{
+		name{y}
+		type{float}
+	}
+	property{
+		name{energy}
+		type{float}
+	}
+}
+
+relationship{
+	name{selection}
+	size{400}
+	storage_type{erasable}
+
+	link{
+		object{fighter}
+		name{selected}
+		type{many}
+	}
+
+	link{
+		object{fighter}
+		name{selector}
+		type{unique}
+	}
+}
+
+relationship{
+	name{homing_target}
+	size{10000}
+	storage_type{erasable}
+
+	link{
+		object{fighter}
+		name{target}
+		type{many}
+	}
+
+	link{
+		object{projectile}
+		name{projectile}
+		type{unique}
 	}
 }
 

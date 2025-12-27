@@ -8,12 +8,27 @@
 #include <chrono>
 #include <vector>
 
+#include "network_containers.hpp"
+
+constexpr float PARRY_PREPARATION = 0.3f;
+constexpr float PARRY_DURATION = 0.3f;
+
+
 struct game_session {
         dcon::data_container state{};
 };
 
 
-//inline constexpr float base_speed = 0.01f;
+void event_notification(game_session& game, dcon::fighter_id fid, uint8_t event_type) {
+	game.state.for_each_player([&](auto dest) {
+		update::data to_send {};
+		to_send.id = fid.index();
+		to_send.update_type = update::EVENT;
+		to_send.event_type = event_type;
+		auto connection = game.state.player_get_connection(dest);
+		send(connection, (char*)&to_send, sizeof(update::data), 0);
+	});
+}
 
 void update_game_state(game_session& game, std::chrono::microseconds last_tick) {
 	float dt = float(last_tick.count()) / 1'000'000.f;
@@ -33,8 +48,47 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 			dy /= norm;
 		}
 
-		x += dx * dt;
-		y += dy * dt;
+		float speed_mod = 1.f;
+		float progress = game.state.fighter_get_spell_progress(fid);	
+
+		if (progress > 0.f) {
+			speed_mod = 0.5f;
+			game.state.fighter_set_spell_progress(fid, std::max(0.f, progress - dt));
+			if (progress - dt <= 0.f) {
+				auto selection = game.state.fighter_get_selection_as_selector(fid);
+				auto selected = game.state.selection_get_selected(selection);
+					
+				if (selected) {
+					auto proj = game.state.create_projectile();
+					game.state.projectile_set_x(proj, x);
+					game.state.projectile_set_y(proj, y);
+					game.state.force_create_homing_target(selected, proj);
+					printf("new proj\n");
+				}
+			}
+		}
+
+		float parry = game.state.fighter_get_parry_progress(fid);
+		
+		if (parry > 0.f) {
+			speed_mod = 0.25f;
+			game.state.fighter_set_parry_progress(fid, std::max(0.f, parry - dt));
+
+			if (parry - dt <= 0.f) {
+				event_notification(game, fid, update::EVENT_NO_DAMAGE);
+				game.state.fighter_set_no_damage_timer(fid, PARRY_DURATION);
+			}
+		}
+
+		float no_damage = game.state.fighter_get_no_damage_timer(fid);
+
+		if (no_damage > 0.f) {
+			game.state.fighter_set_no_damage_timer(fid, std::max(0.f, no_damage - dt));
+		}
+
+
+		x += dx * dt * speed_mod;
+		y += dy * dt * speed_mod;
 
 		auto norm_f = sqrt(x * x + y * y);
 		if (norm_f > 1.f) {
@@ -45,55 +99,58 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		game.state.fighter_set_x(fid, x);
 		game.state.fighter_set_y(fid, y);
 	});
-}
 
-dcon::player_id new_player(game_session& game) {
-        auto id = game.state.create_fighter();
-        game.state.fighter_set_rotation(id, 0.f);
-        game.state.fighter_set_x(id, 0.f);
-        game.state.fighter_set_y(id, 0.f);
-        game.state.fighter_set_size(id, 10.f);
+	std::vector<dcon::projectile_id> marked_for_deletion_projectile;
+		
+	game.state.for_each_projectile([&](auto proj){
+		auto x = game.state.projectile_get_x(proj);
+		auto y = game.state.projectile_get_y(proj);
 
-        auto pid = game.state.create_player();
+		auto homing = game.state.projectile_get_homing_target(proj);
+		auto target = game.state.homing_target_get_target(homing);
+		
+		auto tx = game.state.fighter_get_x(target);
+		auto ty = game.state.fighter_get_y(target);
 
-        game.state.force_create_player_control(pid, id);
+		auto dx = tx - x;
+		auto dy = ty - y;
 
-        return pid;
+		auto norm = sqrt(dx * dx + dy * dy);
+
+
+		if (norm < dt) {
+			if (game.state.fighter_get_no_damage_timer(target) == 0.f) {
+				game.state.fighter_set_hp(
+					target,
+					std::max(0, game.state.fighter_get_hp(target) - 1)
+				);
+			}
+			marked_for_deletion_projectile.push_back(proj);
+		} else {
+			game.state.projectile_set_x(proj, x + dx / norm * dt);
+			game.state.projectile_set_y(proj, y + dy / norm * dt);
+		}
+	});
+
+	for (int i = 0; i < int(marked_for_deletion_projectile.size()); ++i) {
+		game.state.delete_projectile(marked_for_deletion_projectile[i]);
+	}
+
+
+	std::vector<dcon::fighter_id> marked_for_deletion_fighter;
+
+	game.state.for_each_fighter([&](auto fid){
+		if (game.state.fighter_get_hp(fid) <= 0) {
+			marked_for_deletion_fighter.push_back(fid);
+		}
+	});
+
+	//for (int i = 0; i < int(marked_for_deletion_fighter.size()); ++i) {
+	//	game.state.delete_fighter(marked_for_deletion_fighter[i]);
+	//}
 }
 
 static game_session game { };
-
-namespace command {
-
-uint8_t MOVE = 0;
-uint8_t SPELL = 1;
-
-struct data {
-	int32_t actor;
-	float target_x;
-	float target_y;
-	uint8_t command_type;
-	uint8_t padding[3];
-};
-
-}
-
-namespace update {
-uint8_t FIGHTER = 0;
-uint8_t SPELL = 1;
-uint8_t SEND_ID = 2;
-struct data {
-	int32_t id;
-	float x;
-	float y;
-	uint8_t update_type;
-	uint8_t belongs_to;
-	uint8_t padding[2];
-};
-}
-
-static_assert(sizeof(command::data) == 4 * 4);
-static_assert(sizeof(command::data) < 256);
 
 int consume_command(game_session& game, int connection, command::data command) {
 	
@@ -117,17 +174,21 @@ int consume_command(game_session& game, int connection, command::data command) {
 
 	dcon::fighter_id fighter = game.state.player_control_get_controlled(control);
 
-	if (!fighter) {
-		fighter = game.state.create_fighter();
-		game.state.force_create_player_control(id, fighter);
-	}
-
 	if (command.command_type == command::MOVE) {
 		game.state.fighter_set_tx(fighter, command.target_x);
 		game.state.fighter_set_ty(fighter, command.target_y);
 	} else if (command.command_type == command::SPELL) {
-		game.state.fighter_set_spell_target_x(fighter, command.target_x);
-		game.state.fighter_set_spell_target_y(fighter, command.target_y);
+		printf("start casting\n");
+		event_notification(game, fighter, update::EVENT_START_CAST);
+		game.state.fighter_set_spell_progress(fighter, 1.f);		
+		dcon::fighter_id selected { (dcon::fighter_id::value_base_t) command.target_actor };
+		game.state.force_create_selection(selected, fighter);
+	} else if (
+		command.command_type == command::PARRY 
+		&& game.state.fighter_get_no_damage_timer(fighter) == 0.f
+	) {
+		event_notification(game, fighter, update::EVENT_START_PARRY);
+		game.state.fighter_set_parry_progress(fighter, PARRY_PREPARATION);
 	}
 
 	return 0;
@@ -155,7 +216,7 @@ int read_from_connection (game_session& game, int connection) {
 		}
 
 		return -1;
-	} else {		
+	} else {
 		command::data command {};
 		memcpy(&command, buffer, sizeof(command::data));
 
@@ -186,9 +247,6 @@ int main(int argc, char const* argv[]) {
 	const long port = strtol(argv[1], nullptr, 10);
 
 	std::cout << "Attempt to run server at " << port << "\n";
-	
-
-        new_player(game);
 
 	int server_socket = socket(AF_INET, SOCK_STREAM, 0);
 	if(server_socket < 0) {
@@ -291,6 +349,7 @@ int main(int argc, char const* argv[]) {
 				auto pid = game.state.create_player();
 				game.state.player_set_connection(pid, new_connection);
 				auto fid = game.state.create_fighter();
+				game.state.fighter_set_hp(fid, 5);
 				game.state.force_create_player_control(pid, fid);
 				
 				game.state.player_set_knows_themselves(pid, false);
@@ -329,9 +388,20 @@ int main(int argc, char const* argv[]) {
 					to_send.x = game.state.fighter_get_x(fid);
 					to_send.y = game.state.fighter_get_y(fid);
 					to_send.update_type = update::FIGHTER;
-					
+					to_send.additional_data = game.state.fighter_get_hp(fid);	
 					send(connection, (char*)&to_send, sizeof(update::data), 0);
-				});			
+				});
+
+				game.state.for_each_projectile([&](auto proj){
+					update::data to_send {};
+					to_send.id = proj.index();
+					to_send.x = game.state.projectile_get_x(proj);
+					to_send.y = game.state.projectile_get_y(proj);
+					to_send.update_type = update::SPELL;
+
+
+					send(connection, (char*)&to_send, sizeof(update::data), 0);
+				});
 					
 				if (
 					true
