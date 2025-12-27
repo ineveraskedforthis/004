@@ -5,3 +5,7 @@ compilation_database.json
 data.hpp
 data_ids.hpp
 server.exe
+analysis*
+callgrind*
+gmon.out
+output

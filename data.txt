@@ -10,6 +10,38 @@ object{
 		name{y}
 		type{float}
 	}
+
+	property{
+		name{speed_x}
+		type{float}
+	}
+	property{
+		name{speed_y}
+		type{float}
+	}
+
+	property{
+		name{tx}
+		type{float}
+	}
+	property{
+		name{ty}
+		type{float}
+	}
+
+	property{
+		name{spell_progress}
+		type{float}
+	}
+	property{
+		name{spell_target_x}
+		type{float}
+	}
+	property{
+		name{spell_target_y}
+		type{float}
+	}
+
 	property{
 		name{rotation}
 		type{float}
@@ -32,7 +64,19 @@ object{
 		name{name}
 		type{uint16_t}
 	}
+
+	property{
+		name{connection}
+		type{int32_t}
+	}
+
+	property{
+		name{knows_themselves}
+		type{bitfield}
+	}
 }
+
+
 
 relationship{
 	name{player_control}
