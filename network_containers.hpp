@@ -10,8 +10,8 @@ uint8_t SELECT_CLASS = 4;
 uint8_t JOIN_LOBBY = 5;
 uint8_t KNOW_MYSELF = 6;
 uint8_t ATTACK = 7;
-uint8_t INVISIBILITY = 8;
-uint8_t CHARGE = 9;
+uint8_t INVISIBILITY_PREPARATION = 8;
+uint8_t CHARGE_PREPARATION = 9;
 
 uint8_t CLASS_MAGE = 0;
 uint8_t CLASS_WARRIOR = 1;

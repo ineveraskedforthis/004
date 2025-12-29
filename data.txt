@@ -38,10 +38,13 @@ object{
 		name{ty}
 		type{float}
 	}
-
 	property{
-		name{spell_progress}
+		name{action_timer}
 		type{float}
+	}
+	property{
+		name{action_type}
+		type{uint8_t}
 	}
 	property{
 		name{spell_target_x}
@@ -59,7 +62,6 @@ object{
 		name{no_damage_timer}
 		type{float}
 	}
-
 	property{
 		name{rotation}
 		type{float}
@@ -77,23 +79,11 @@ object{
 		type{float}
 	}
 	property{
-		name{invisibility_preparation_timer}
-		type{float}
-	}
-	property{
-		name{attack_timer}
+		name{stunned_timer}
 		type{float}
 	}
 	property{
 		name{charge_timer}
-		type{float}
-	}
-	property{
-		name{charge_preparation_timer}
-		type{float}
-	}
-	property{
-		name{stunned_timer}
 		type{float}
 	}
 }

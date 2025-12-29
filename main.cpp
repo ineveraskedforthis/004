@@ -45,6 +45,7 @@ void event_notification(game_session& game, dcon::fighter_id fid, uint8_t event_
 }
 
 void event_notification(game_session& game, dcon::fighter_id fid, uint8_t event_type, float x, float y) {
+	printf("send event %d\n", event_type);
 	game.state.for_each_player([&](auto dest) {
 		update::data to_send {};
 		to_send.id = fid.index();
@@ -71,21 +72,15 @@ void event_notification_to_player(game_session& game, dcon::player_id pid, uint8
 bool is_busy(game_session& game, dcon::fighter_id fid) {
 	if (game.state.fighter_get_stunned_timer(fid) > 0.f) return true;
 	if (game.state.fighter_get_charge_timer(fid) > 0.f) return true;
-	if (game.state.fighter_get_attack_timer(fid) > 0.f) return true;
-	if (game.state.fighter_get_invisibility_preparation_timer(fid) > 0.f) return true;
-	if (game.state.fighter_get_parry_progress(fid) > 0.f) return true;
-	if (game.state.fighter_get_spell_progress(fid) > 0.f) return true;
+	if (game.state.fighter_get_action_timer(fid) > 0.f) return true;
 
 	return false;
 }
 
 void stun(game_session& game, dcon::fighter_id fid, float duration) {
-	game.state.fighter_set_stunned_timer(fid, 0.f); 
+	game.state.fighter_set_action_timer(fid, 0.f); 
 	game.state.fighter_set_charge_timer(fid, 0.f);
-	game.state.fighter_set_attack_timer(fid, 0.f);
-	game.state.fighter_set_invisibility_preparation_timer(fid, 0.f);
-	game.state.fighter_set_parry_progress(fid, 0.f);
-	game.state.fighter_set_spell_progress(fid, 0.f);
+	game.state.fighter_set_action_timer(fid, 0.f);
 	
 	game.state.fighter_set_stunned_timer(fid, duration);
 	
@@ -104,6 +99,75 @@ float distance(game_session& game, dcon::fighter_id a, dcon::fighter_id b) {
 	return sqrt(dx * dx + dy * dy);
 }
 
+bool can_be_selected(game_session& game, dcon::fighter_id origin, dcon::fighter_id candidate) {
+	if (!candidate) return false;
+	if (!game.state.fighter_is_valid(candidate)) return false;
+	if (game.state.fighter_get_invisible_timer(candidate) > 0.f) return false;
+	if (game.state.fighter_get_hp(candidate) <= 0) return false;
+	if (game.state.fighter_get_hp(origin) <= 0) return false;
+
+	auto control = game.state.fighter_get_player_control(origin);
+	auto player = game.state.player_control_get_controller(control);
+	auto location = game.state.player_get_location(player);
+	auto room = game.state.location_get_where(location);
+	
+	auto tcontrol = game.state.fighter_get_player_control(candidate);
+	auto tplayer = game.state.player_control_get_controller(tcontrol);
+	auto tlocation = game.state.player_get_location(tplayer);
+	auto troom = game.state.location_get_where(tlocation);
+
+	if (troom != room) return false;
+
+	return true;
+}
+
+void shoot_spell(game_session& game, dcon::fighter_id origin, dcon::fighter_id target) {
+	if (!can_be_selected(game, origin, target)) return;
+
+	auto x = game.state.fighter_get_x(origin);
+	auto y = game.state.fighter_get_y(origin);
+	
+	auto control = game.state.fighter_get_player_control(origin);
+	auto player = game.state.player_control_get_controller(control);
+	auto location = game.state.player_get_location(player);
+	auto room = game.state.location_get_where(location);
+	
+	auto proj = game.state.create_projectile();
+	game.state.projectile_set_x(proj, x);
+	game.state.projectile_set_y(proj, y);
+	game.state.force_create_homing_target(target, proj);
+	game.state.force_create_projectile_location(proj, room);
+	printf("new proj\n");	
+}
+
+
+void charge(game_session& game, dcon::fighter_id origin, dcon::fighter_id target, float dt, float speed_mod) {
+	game.state.fighter_set_charge_timer(target, 
+		std::max(0.f, game.state.fighter_get_charge_timer(target) - dt)
+	);
+	
+	auto x = game.state.fighter_get_x(origin);
+	auto y = game.state.fighter_get_y(origin);
+
+	auto tx = game.state.fighter_get_x(target);
+	auto ty = game.state.fighter_get_y(target);
+	game.state.fighter_set_tx(origin, 0.f);
+	game.state.fighter_set_ty(origin, 0.f);
+	auto dx = tx - x;
+	auto dy = ty - y;
+	auto norm = sqrt(dx * dx + dy * dy);
+	if (norm > ATTACK_RANGE * 0.9) {
+		dx /= norm;
+		dy /= norm;
+	} else {
+		game.state.fighter_set_charge_timer(origin, 0.f);
+		game.state.fighter_set_stunned_timer(target, MEDIUM_STUN_DURATION);
+	}
+
+	game.state.fighter_set_x(origin, x + dx * dt * speed_mod);
+	game.state.fighter_set_y(origin, y + dy * dt * speed_mod);
+}
+
 void update_game_state(game_session& game, std::chrono::microseconds last_tick) {
 	float dt = float(last_tick.count()) / 1'000'000.f;
 
@@ -112,17 +176,17 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		auto y = game.state.fighter_get_y(fid);
 		auto tx = game.state.fighter_get_tx(fid);
 		auto ty = game.state.fighter_get_ty(fid);
-		auto dx = tx - x;
-		auto dy = ty - y;
+		auto dx = tx;
+		auto dy = ty;
 		auto norm = sqrt(dx * dx + dy * dy);
 		if (norm > dt) {
 			dx /= norm;
 			dy /= norm;
 		}
 
-		float speed_mod = 1.f;
+		float speed_mod = 0.4f;
 		float progress_mod = 1.f;
-		float progress = game.state.fighter_get_spell_progress(fid);	
+		float progress = game.state.fighter_get_action_timer(fid);	
 
 		auto control = game.state.fighter_get_player_control(fid);
 		auto player = game.state.player_control_get_controller(control);
@@ -132,8 +196,7 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		auto selected = game.state.selection_get_selected(selection);
 
 		if (
-			game.state.fighter_get_invisible_timer(selected) > 0.f
-			|| game.state.fighter_get_hp(selected) <= 0.f
+			!can_be_selected(game, fid, selected)
 		) {
 			selected = dcon::fighter_id {};
 			game.state.delete_selection(selection);
@@ -149,119 +212,84 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		float edt = progress_mod * dt;
 
 		if (progress > 0.f) {
-			speed_mod = speed_mod * 0.5f;
-			game.state.fighter_set_spell_progress(fid, std::max(0.f, progress - edt));
+			auto action = game.state.fighter_get_action_type(fid);
+
+			if (action == command::SPELL) {
+				speed_mod *= 0.5f;
+			} else if (action == command::PARRY) {
+				speed_mod *= 0.25f;
+			} else if (action == command::CHARGE_PREPARATION) {
+				speed_mod *= 0.25f;
+			} else if (action == command::INVISIBILITY_PREPARATION) {
+				speed_mod *= 0.1f;
+			} else if (action == command::ATTACK) {
+				speed_mod *= 0.3f;
+			}
+
+			game.state.fighter_set_action_timer(fid, std::max(0.f, progress - edt));
+
+			// during action
+
 			if (progress - edt <= 0.f) {
+				// on action end
 				if (selected) {
-					auto proj = game.state.create_projectile();
-					game.state.projectile_set_x(proj, x);
-					game.state.projectile_set_y(proj, y);
-					game.state.force_create_homing_target(selected, proj);
-					game.state.force_create_projectile_location(proj, room);
-					printf("new proj\n");
+					if (action == command::SPELL) {
+						shoot_spell(game, fid, selected);
+					} else if (action == command::CHARGE_PREPARATION) {
+						game.state.fighter_set_charge_timer(
+							fid, CHARGE_DURATION
+						);
+					} else if (action == command::ATTACK) {
+						auto damage = 1;
+						if (game.state.fighter_get_invisible_timer(fid) > 0.f) {
+							damage *= 2;
+						}
+						if (distance(game, fid, selected) < ATTACK_RANGE) {
+							game.state.fighter_set_hp(selected, 
+								game.state.fighter_get_hp(selected) - damage
+							);
+						}
+					}
+				}
+				
+				if (action == command::PARRY) {
+					event_notification(
+						game, fid, update::EVENT_NO_DAMAGE, PARRY_DURATION, 0.f
+					);
+					game.state.fighter_set_no_damage_timer(fid, PARRY_DURATION);
+				} else if (action == command::INVISIBILITY_PREPARATION) {
+					event_notification(game, fid, update::EVENT_START_INVISIBILITY);
+					game.state.fighter_set_invisible_timer(fid, INVISIBILITY_DURATION);
 				}
 			}
 		}
 
-		float parry = game.state.fighter_get_parry_progress(fid);
-		
-		if (parry > 0.f) {
-			speed_mod *= 0.25f;
-			game.state.fighter_set_parry_progress(fid, std::max(0.f, parry - edt));
-
-			if (parry - edt <= 0.f) {
-				event_notification(game, fid, update::EVENT_NO_DAMAGE);
-				game.state.fighter_set_no_damage_timer(fid, PARRY_DURATION);
-			}
-		}
 
 		float no_damage = game.state.fighter_get_no_damage_timer(fid);
-
 		if (no_damage > 0.f) {
 			game.state.fighter_set_no_damage_timer(fid, std::max(0.f, no_damage - dt));
 		}
-		
 		auto invisible = game.state.fighter_get_invisible_timer(fid);
 		if (invisible > 0.f) {
 			speed_mod *= 2.f;
 			game.state.fighter_set_invisible_timer(fid, std::max(0.f, invisible - dt));
 		}
+		auto charging = game.state.fighter_get_charge_timer(fid);
+		if (charging == 0.f) {
+			x += dx * dt * speed_mod;
+			y += dy * dt * speed_mod;
 
-		auto charge = game.state.fighter_get_charge_timer(fid);
-		if (charge > 0.f) {
-			game.state.fighter_set_charge_timer(fid, std::max(0.f, charge - dt));
-			if (selected) {
-				tx = game.state.fighter_get_x(selected);
-				ty = game.state.fighter_get_y(selected);
-
-				game.state.fighter_set_tx(fid, tx);
-				game.state.fighter_set_ty(fid, ty);
-
-				dx = tx - x;
-				dy = ty - y;
-				norm = sqrt(dx * dx + dy * dy);
-				if (norm > ATTACK_RANGE * 0.9) {
-					dx /= norm;
-					dy /= norm;
-				} else {
-					game.state.fighter_set_charge_timer(fid, 0.f);
-					game.state.fighter_set_stunned_timer(selected, MEDIUM_STUN_DURATION);
-				}
-				speed_mod = speed_mod * 4.f;
-			} else {
-				game.state.fighter_set_charge_timer(fid, 0.f);
+			auto norm_f = sqrt(x * x + y * y);
+			if (norm_f > 1.f) {
+				x /= norm_f;
+				y /= norm_f;
 			}
+
+			game.state.fighter_set_x(fid, x);
+			game.state.fighter_set_y(fid, y);
+		} else {
+			charge(game, fid, selected, dt, speed_mod);	
 		}
-
-		auto charge_prep = game.state.fighter_get_charge_preparation_timer(fid);
-		if (charge_prep > 0.f) {
-			game.state.fighter_set_charge_preparation_timer(fid, std::max(0.f, charge_prep - edt));
-			if (selected && charge_prep <= edt) {
-				game.state.fighter_set_charge_timer(fid, CHARGE_DURATION);
-			} else if (!selected) {
-				game.state.fighter_set_charge_preparation_timer(fid, 0.f);
-			}
-			speed_mod *= 0.2f;
-		}
-
-		auto invis_prep = game.state.fighter_get_invisibility_preparation_timer(fid);
-		if (invis_prep > 0.f) {
-			game.state.fighter_set_invisibility_preparation_timer(fid, std::max(0.f, invis_prep - edt));
-
-			if (invis_prep - edt <= 0.f) {
-				event_notification(game, fid, update::EVENT_START_INVISIBILITY);
-				game.state.fighter_set_invisible_timer(fid, INVISIBILITY_DURATION);
-			}
-		}
-		
-		auto attack_timer = game.state.fighter_get_attack_timer(fid);
-		if (attack_timer > 0.f) {
-			game.state.fighter_set_attack_timer(fid, std::max(0.f, attack_timer - edt));
-			if (selected) {
-				if (attack_timer - edt < 0.f) {
-					if (distance(game, fid, selected) < ATTACK_RANGE) {
-						game.state.fighter_set_hp(selected, 
-							game.state.fighter_get_hp(selected) - 1
-						);
-					}
-				}
-			} else {
-				game.state.fighter_set_attack_timer(fid, 0.f);
-			}
-		}
-
-
-		x += dx * dt * speed_mod;
-		y += dy * dt * speed_mod;
-
-		auto norm_f = sqrt(x * x + y * y);
-		if (norm_f > 1.f) {
-			x /= norm_f;
-			y /= norm_f;
-		}
-
-		game.state.fighter_set_x(fid, x);
-		game.state.fighter_set_y(fid, y);
 	});
 
 	std::vector<dcon::projectile_id> marked_for_deletion_projectile;
@@ -385,7 +413,10 @@ int consume_command(game_session& game, int connection, command::data command) {
 		return 0;
 	}
 
-	if (command.command_type == command::MOVE) {
+	if (
+		command.command_type == command::MOVE
+		&& game.state.fighter_get_charge_timer(fighter) <= 0.f
+	) {
 		game.state.fighter_set_tx(fighter, command.target_x);
 		game.state.fighter_set_ty(fighter, command.target_y);
 	} else if (
@@ -420,23 +451,19 @@ int consume_command(game_session& game, int connection, command::data command) {
 
 		printf("start casting\n");
 		event_notification(game, fighter, update::EVENT_START_CAST, SPELL_PREPARATION, 0.f);
-		game.state.fighter_set_spell_progress(fighter, SPELL_PREPARATION);		
+		game.state.fighter_set_action_timer(fighter, SPELL_PREPARATION);
+		game.state.fighter_set_action_type(fighter, command::SPELL);
 		game.state.force_create_selection(selected, fighter);
 	} else if (command.command_type == command::SELECTION) { 
 		dcon::fighter_id selected { (dcon::fighter_id::value_base_t) command.target_actor };
 		if (!game.state.fighter_is_valid(selected)) {
 			return 0;
 		}
-		auto target_control = game.state.fighter_get_player_control(selected);
-		auto target_player = game.state.player_control_get_controller(target_control);
-		auto target_location = game.state.player_get_location(target_player);
-		auto target_room = game.state.location_get_where(target_location);
-		if (target_room != lobby) {
+
+		if (!can_be_selected(game, fighter, selected)) {
 			return 0;
 		}
-		if (game.state.fighter_get_invisible_timer(selected) > 0.f) {
-			return 0;
-		}
+		
 		game.state.force_create_selection(selected, fighter);
 	} else if (
 		command.command_type == command::PARRY 
@@ -444,7 +471,8 @@ int consume_command(game_session& game, int connection, command::data command) {
 		&& !is_busy(game, fighter)
 	) {
 		event_notification(game, fighter, update::EVENT_START_PARRY, PARRY_PREPARATION, 0.f);
-		game.state.fighter_set_parry_progress(fighter, PARRY_PREPARATION);
+		game.state.fighter_set_action_timer(fighter, PARRY_PREPARATION);
+		game.state.fighter_set_action_type(fighter, command::PARRY);
 	} else if (
 		command.command_type == command::ATTACK
 		&& !is_busy(game, fighter)
@@ -454,9 +482,10 @@ int consume_command(game_session& game, int connection, command::data command) {
 		}
 
 		event_notification(game, fighter, update::EVENT_START_ATTACK, ATTACK_PREPARATION, 0.f);
-		game.state.fighter_set_attack_timer(fighter, ATTACK_PREPARATION);
+		game.state.fighter_set_action_timer(fighter, ATTACK_PREPARATION);
+		game.state.fighter_set_action_type(fighter, command::ATTACK);
 	} else if (
-		command.command_type == command::INVISIBILITY
+		command.command_type == command::INVISIBILITY_PREPARATION
 		&& !is_busy(game, fighter)
 	) {
 		if (game.state.fighter_get_character_class(fighter) != command::CLASS_ROGUE) {
@@ -469,9 +498,10 @@ int consume_command(game_session& game, int connection, command::data command) {
 			update::EVENT_START_INVISIBILITY_PREPARATION, 
 			INVISIBILITY_PREPARATION, 0.f
 		);
-		game.state.fighter_set_invisibility_preparation_timer(fighter, INVISIBILITY_PREPARATION);
+		game.state.fighter_set_action_timer(fighter, INVISIBILITY_PREPARATION);
+		game.state.fighter_set_action_type(fighter, command::INVISIBILITY_PREPARATION);
 	} else if (
-		command.command_type == command::CHARGE
+		command.command_type == command::CHARGE_PREPARATION
 		&& !is_busy(game, fighter)
 	) {
 		if (game.state.fighter_get_character_class(fighter) != command::CLASS_WARRIOR) {
@@ -484,7 +514,8 @@ int consume_command(game_session& game, int connection, command::data command) {
 			update::EVENT_START_CHARGE,
 			CHARGE_PREPARATION, 0.f
 		);
-		game.state.fighter_set_charge_preparation_timer(fighter, CHARGE_PREPARATION);
+		game.state.fighter_set_action_timer(fighter, CHARGE_PREPARATION);
+		game.state.fighter_set_action_type(fighter, command::CHARGE_PREPARATION);
 	}
 
 	return 0;
