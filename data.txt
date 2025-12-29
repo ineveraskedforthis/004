@@ -26,6 +26,11 @@ object{
 	}
 
 	property{
+		name{character_class}
+		type{uint8_t}
+	}
+
+	property{
 		name{tx}
 		type{float}
 	}
@@ -126,7 +131,7 @@ relationship{
 
 object{
 	name{player}
-	size{200}
+	size{2000}
 	storage_type{erasable}
 	property{
 		name{name}
@@ -139,12 +144,55 @@ object{
 	}
 
 	property{
-		name{knows_themselves}
+		name{know_myself}
 		type{bitfield}
 	}
 }
 
+object{
+	name{room}
+	size{200}
+	storage_type{erasable}
+	property{
+		name{battle_type}
+		type{uint8_t}
+	}
+}
 
+relationship{
+	name{location}
+	size{200}
+	storage_type{erasable}
+
+	link{
+		object{player}
+		name{who}
+		type{unique}
+	}
+
+	link{
+		object{room}
+		name{where}
+		type{many}
+	}
+}
+relationship{
+	name{projectile_location}
+	size{200}
+	storage_type{erasable}
+
+	link{
+		object{projectile}
+		name{what}
+		type{unique}
+	}
+
+	link{
+		object{room}
+		name{where}
+		type{many}
+	}
+}
 
 relationship{
 	name{player_control}

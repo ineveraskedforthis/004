@@ -6,13 +6,23 @@ uint8_t MOVE = 0;
 uint8_t SPELL = 1;
 uint8_t SELECTION = 2;
 uint8_t PARRY = 3;
+uint8_t SELECT_CLASS = 4;
+uint8_t JOIN_LOBBY = 5;
+uint8_t KNOW_MYSELF = 6;
+
+uint8_t CLASS_MAGE = 0;
+uint8_t CLASS_WARRIOR = 1;
+uint8_t CLASS_ROGUE = 2;
+uint8_t CLASS_TOTAL = 3;
+
 struct data {
 	int32_t actor;
 	int32_t target_actor;	
 	float target_x;
 	float target_y;
 	uint8_t command_type;
-	uint8_t padding[3];
+	uint8_t command_data;
+	uint8_t padding[2];
 };
 
 }
@@ -29,6 +39,9 @@ uint8_t EVENT_NONE = 0;
 uint8_t EVENT_START_CAST = 1;
 uint8_t EVENT_START_PARRY = 2;
 uint8_t EVENT_NO_DAMAGE = 3;
+uint8_t EVENT_JOIN_LOBBY = 4;
+uint8_t EVENT_JOIN_BATTLE = 5;
+uint8_t EVENT_LEFT_GAME = 6;
 
 struct data {
 	int32_t id;

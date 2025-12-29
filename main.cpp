@@ -30,6 +30,17 @@ void event_notification(game_session& game, dcon::fighter_id fid, uint8_t event_
 	});
 }
 
+void event_notification_to_player(game_session& game, dcon::player_id pid, uint8_t event_type) {
+	update::data to_send {};
+	to_send.id = pid.index();
+	to_send.update_type = update::EVENT;
+	to_send.event_type = event_type;
+
+	auto connection = game.state.player_get_connection(pid);
+
+	send(connection, (char*) & to_send, sizeof(update::data), 0);
+}
+
 void update_game_state(game_session& game, std::chrono::microseconds last_tick) {
 	float dt = float(last_tick.count()) / 1'000'000.f;
 
@@ -51,6 +62,11 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		float speed_mod = 1.f;
 		float progress = game.state.fighter_get_spell_progress(fid);	
 
+		auto control = game.state.fighter_get_player_control(fid);
+		auto player = game.state.player_control_get_controller(control);
+		auto location = game.state.player_get_location(player);
+		auto room = game.state.location_get_where(location);
+
 		if (progress > 0.f) {
 			speed_mod = 0.5f;
 			game.state.fighter_set_spell_progress(fid, std::max(0.f, progress - dt));
@@ -63,6 +79,7 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 					game.state.projectile_set_x(proj, x);
 					game.state.projectile_set_y(proj, y);
 					game.state.force_create_homing_target(selected, proj);
+					game.state.force_create_projectile_location(proj, room);
 					printf("new proj\n");
 				}
 			}
@@ -172,16 +189,80 @@ int consume_command(game_session& game, int connection, command::data command) {
 		return 0;
 	}
 
+	if (command.command_type == command::KNOW_MYSELF) {
+		game.state.player_set_know_myself(id, true);
+		return 0;
+	}
+
 	dcon::fighter_id fighter = game.state.player_control_get_controlled(control);
+	auto location = game.state.player_get_location(id);
+	auto lobby = game.state.location_get_where(location);
+
+	if (!fighter) {
+		if (!lobby) {
+			if (command.command_type == command::JOIN_LOBBY) {
+				lobby = dcon::room_id { command.command_data };
+
+				if (!game.state.room_is_valid(lobby)) {
+					return 0;
+				}
+
+				game.state.force_create_location(id, lobby);
+
+				event_notification_to_player(game, id, update::EVENT_JOIN_LOBBY);
+
+				return 0;
+			}
+		} else {
+			if (command.command_type == command::SELECT_CLASS) {
+				if (command.command_data >= command::CLASS_TOTAL) {
+					return 0;
+				}
+	
+				auto fid = game.state.create_fighter();
+				game.state.fighter_set_character_class(fid, command.command_data);
+				game.state.fighter_set_hp(fid, 5);
+				game.state.force_create_player_control(id, fid);
+				game.state.player_set_know_myself(id, false);
+				
+				event_notification_to_player(game, id, update::EVENT_JOIN_BATTLE);
+
+				return 0;
+			}
+		}
+
+		return 0;
+	}
+
+	if (game.state.fighter_get_hp(fighter) <= 0) {
+		return 0;
+	}
 
 	if (command.command_type == command::MOVE) {
 		game.state.fighter_set_tx(fighter, command.target_x);
 		game.state.fighter_set_ty(fighter, command.target_y);
 	} else if (command.command_type == command::SPELL) {
+		dcon::fighter_id selected { (dcon::fighter_id::value_base_t) command.target_actor };
+			
+		// validation
+		
+		if (!game.state.fighter_is_valid(selected)) {
+			return 0;
+		}
+
+
+		auto target_control = game.state.fighter_get_player_control(selected);
+		auto target_player = game.state.player_control_get_controller(target_control);
+		auto target_location = game.state.player_get_location(target_player);
+		auto target_room = game.state.location_get_where(target_location);
+		
+		if (target_room != lobby) {
+			return 0;
+		}
+
 		printf("start casting\n");
 		event_notification(game, fighter, update::EVENT_START_CAST);
 		game.state.fighter_set_spell_progress(fighter, 1.f);		
-		dcon::fighter_id selected { (dcon::fighter_id::value_base_t) command.target_actor };
 		game.state.force_create_selection(selected, fighter);
 	} else if (
 		command.command_type == command::PARRY 
@@ -209,10 +290,16 @@ int read_from_connection (game_session& game, int connection) {
 			if (game.state.player_get_connection(pid) == connection)
 				players_to_delete.push_back(pid);
 		});
+
 		
 		for (int i = 0; i < (int)players_to_delete.size(); ++i) {
-			printf("delete player %d\n", players_to_delete[i].index());
-			game.state.delete_player(players_to_delete[i]);
+			auto pid = players_to_delete[i];
+			auto control = game.state.player_get_player_control(pid);
+			auto fighter = game.state.player_control_get_controlled(control);
+			event_notification(game, fighter, update::EVENT_LEFT_GAME);
+			printf("delete player %d\n", pid.index());
+			game.state.delete_player(pid);
+			game.state.delete_fighter(fighter);
 		}
 
 		return -1;
@@ -303,9 +390,12 @@ int main(int argc, char const* argv[]) {
 	bool update_requested = false;
 
 	int updated = 0;
+
+	game.state.create_room();
+	game.state.create_room();
+	game.state.create_room();
 		
 //	int counter = 1000 * 30;
-
 
 	while (1) {
 //		counter--;
@@ -348,11 +438,6 @@ int main(int argc, char const* argv[]) {
 				}
 				auto pid = game.state.create_player();
 				game.state.player_set_connection(pid, new_connection);
-				auto fid = game.state.create_fighter();
-				game.state.fighter_set_hp(fid, 5);
-				game.state.force_create_player_control(pid, fid);
-				
-				game.state.player_set_knows_themselves(pid, false);
 
 				FD_SET(new_connection, &active_connections);
 			} else {
@@ -382,17 +467,27 @@ int main(int argc, char const* argv[]) {
 					return;
 				}
 
-				game.state.for_each_fighter([&](auto fid){
+				auto location = game.state.player_get_location(dest);
+				auto lobby = game.state.location_get_where(location);
+
+				game.state.room_for_each_location(lobby, [&](auto player_location){
+					auto player = game.state.location_get_who(player_location);
+					auto control = game.state.player_get_player_control(player);
+					auto fid = game.state.player_control_get_controlled(control);
+
 					update::data to_send {};
 					to_send.id = fid.index();
 					to_send.x = game.state.fighter_get_x(fid);
 					to_send.y = game.state.fighter_get_y(fid);
 					to_send.update_type = update::FIGHTER;
 					to_send.additional_data = game.state.fighter_get_hp(fid);	
+
 					send(connection, (char*)&to_send, sizeof(update::data), 0);
 				});
 
-				game.state.for_each_projectile([&](auto proj){
+				game.state.room_for_each_projectile_location(lobby, [&](auto proj_location){
+					auto proj = game.state.projectile_location_get_what(proj_location);
+
 					update::data to_send {};
 					to_send.id = proj.index();
 					to_send.x = game.state.projectile_get_x(proj);
@@ -404,7 +499,7 @@ int main(int argc, char const* argv[]) {
 				});
 					
 				if (
-					true
+					!game.state.player_get_know_myself(dest)
 				) {
 					printf("Notify player of their identity\n");
 					update::data to_send {};
@@ -412,7 +507,6 @@ int main(int argc, char const* argv[]) {
 					to_send.belongs_to = 1;
 					to_send.update_type = update::SEND_ID;
 					send(connection, (char*)&to_send, sizeof(update::data), 0);
-					game.state.player_set_knows_themselves(dest, true);
 				}
 				
 			});
