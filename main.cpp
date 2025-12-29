@@ -13,6 +13,20 @@
 constexpr float PARRY_PREPARATION = 0.3f;
 constexpr float PARRY_DURATION = 0.3f;
 
+constexpr float INVISIBILITY_PREPARATION = 2.f;
+constexpr float INVISIBILITY_DURATION = 13.f;
+
+constexpr float SPELL_PREPARATION = 1.f;
+
+constexpr float CHARGE_PREPARATION = 0.5f;
+constexpr float CHARGE_DURATION = 2.f;
+
+constexpr float ATTACK_PREPARATION = 0.2f;
+
+constexpr float ATTACK_RANGE = 0.1f;
+
+constexpr float MEDIUM_STUN_DURATION = 1.f;
+constexpr float SHORT_STUN_DURATION = 0.1f;
 
 struct game_session {
         dcon::data_container state{};
@@ -30,6 +44,19 @@ void event_notification(game_session& game, dcon::fighter_id fid, uint8_t event_
 	});
 }
 
+void event_notification(game_session& game, dcon::fighter_id fid, uint8_t event_type, float x, float y) {
+	game.state.for_each_player([&](auto dest) {
+		update::data to_send {};
+		to_send.id = fid.index();
+		to_send.update_type = update::EVENT;
+		to_send.event_type = event_type;
+		to_send.x = x;
+		to_send.y = y;
+		auto connection = game.state.player_get_connection(dest);
+		send(connection, (char*)&to_send, sizeof(update::data), 0);
+	});
+}
+
 void event_notification_to_player(game_session& game, dcon::player_id pid, uint8_t event_type) {
 	update::data to_send {};
 	to_send.id = pid.index();
@@ -41,6 +68,42 @@ void event_notification_to_player(game_session& game, dcon::player_id pid, uint8
 	send(connection, (char*) & to_send, sizeof(update::data), 0);
 }
 
+bool is_busy(game_session& game, dcon::fighter_id fid) {
+	if (game.state.fighter_get_stunned_timer(fid) > 0.f) return true;
+	if (game.state.fighter_get_charge_timer(fid) > 0.f) return true;
+	if (game.state.fighter_get_attack_timer(fid) > 0.f) return true;
+	if (game.state.fighter_get_invisibility_preparation_timer(fid) > 0.f) return true;
+	if (game.state.fighter_get_parry_progress(fid) > 0.f) return true;
+	if (game.state.fighter_get_spell_progress(fid) > 0.f) return true;
+
+	return false;
+}
+
+void stun(game_session& game, dcon::fighter_id fid, float duration) {
+	game.state.fighter_set_stunned_timer(fid, 0.f); 
+	game.state.fighter_set_charge_timer(fid, 0.f);
+	game.state.fighter_set_attack_timer(fid, 0.f);
+	game.state.fighter_set_invisibility_preparation_timer(fid, 0.f);
+	game.state.fighter_set_parry_progress(fid, 0.f);
+	game.state.fighter_set_spell_progress(fid, 0.f);
+	
+	game.state.fighter_set_stunned_timer(fid, duration);
+	
+	event_notification(game, fid, update::EVENT_STUN, duration, 0.f);
+}
+
+float distance(game_session& game, dcon::fighter_id a, dcon::fighter_id b) {
+	auto xa = game.state.fighter_get_x(a);
+	auto ya = game.state.fighter_get_y(a);
+	auto xb = game.state.fighter_get_x(b);
+	auto yb = game.state.fighter_get_y(b);
+
+	auto dx = xb - xa;
+	auto dy = yb - ya;
+
+	return sqrt(dx * dx + dy * dy);
+}
+
 void update_game_state(game_session& game, std::chrono::microseconds last_tick) {
 	float dt = float(last_tick.count()) / 1'000'000.f;
 
@@ -49,10 +112,8 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		auto y = game.state.fighter_get_y(fid);
 		auto tx = game.state.fighter_get_tx(fid);
 		auto ty = game.state.fighter_get_ty(fid);
-		
 		auto dx = tx - x;
 		auto dy = ty - y;
-	
 		auto norm = sqrt(dx * dx + dy * dy);
 		if (norm > dt) {
 			dx /= norm;
@@ -60,20 +121,37 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		}
 
 		float speed_mod = 1.f;
+		float progress_mod = 1.f;
 		float progress = game.state.fighter_get_spell_progress(fid);	
 
 		auto control = game.state.fighter_get_player_control(fid);
 		auto player = game.state.player_control_get_controller(control);
 		auto location = game.state.player_get_location(player);
 		auto room = game.state.location_get_where(location);
+		auto selection = game.state.fighter_get_selection_as_selector(fid);
+		auto selected = game.state.selection_get_selected(selection);
+
+		if (
+			game.state.fighter_get_invisible_timer(selected) > 0.f
+			|| game.state.fighter_get_hp(selected) <= 0.f
+		) {
+			selected = dcon::fighter_id {};
+			game.state.delete_selection(selection);
+			selection = dcon::selection_id {};
+		}
+		
+		auto stunned = game.state.fighter_get_stunned_timer(fid);
+		if (stunned > 0.f) {
+			game.state.fighter_set_stunned_timer(fid, std::max(0.f, stunned - dt));
+			speed_mod = 0.f;
+			progress_mod = 0.f;
+		}
+		float edt = progress_mod * dt;
 
 		if (progress > 0.f) {
-			speed_mod = 0.5f;
-			game.state.fighter_set_spell_progress(fid, std::max(0.f, progress - dt));
-			if (progress - dt <= 0.f) {
-				auto selection = game.state.fighter_get_selection_as_selector(fid);
-				auto selected = game.state.selection_get_selected(selection);
-					
+			speed_mod = speed_mod * 0.5f;
+			game.state.fighter_set_spell_progress(fid, std::max(0.f, progress - edt));
+			if (progress - edt <= 0.f) {
 				if (selected) {
 					auto proj = game.state.create_projectile();
 					game.state.projectile_set_x(proj, x);
@@ -88,10 +166,10 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		float parry = game.state.fighter_get_parry_progress(fid);
 		
 		if (parry > 0.f) {
-			speed_mod = 0.25f;
-			game.state.fighter_set_parry_progress(fid, std::max(0.f, parry - dt));
+			speed_mod *= 0.25f;
+			game.state.fighter_set_parry_progress(fid, std::max(0.f, parry - edt));
 
-			if (parry - dt <= 0.f) {
+			if (parry - edt <= 0.f) {
 				event_notification(game, fid, update::EVENT_NO_DAMAGE);
 				game.state.fighter_set_no_damage_timer(fid, PARRY_DURATION);
 			}
@@ -101,6 +179,75 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 
 		if (no_damage > 0.f) {
 			game.state.fighter_set_no_damage_timer(fid, std::max(0.f, no_damage - dt));
+		}
+		
+		auto invisible = game.state.fighter_get_invisible_timer(fid);
+		if (invisible > 0.f) {
+			speed_mod *= 2.f;
+			game.state.fighter_set_invisible_timer(fid, std::max(0.f, invisible - dt));
+		}
+
+		auto charge = game.state.fighter_get_charge_timer(fid);
+		if (charge > 0.f) {
+			game.state.fighter_set_charge_timer(fid, std::max(0.f, charge - dt));
+			if (selected) {
+				tx = game.state.fighter_get_x(selected);
+				ty = game.state.fighter_get_y(selected);
+
+				game.state.fighter_set_tx(fid, tx);
+				game.state.fighter_set_ty(fid, ty);
+
+				dx = tx - x;
+				dy = ty - y;
+				norm = sqrt(dx * dx + dy * dy);
+				if (norm > ATTACK_RANGE * 0.9) {
+					dx /= norm;
+					dy /= norm;
+				} else {
+					game.state.fighter_set_charge_timer(fid, 0.f);
+					game.state.fighter_set_stunned_timer(selected, MEDIUM_STUN_DURATION);
+				}
+				speed_mod = speed_mod * 4.f;
+			} else {
+				game.state.fighter_set_charge_timer(fid, 0.f);
+			}
+		}
+
+		auto charge_prep = game.state.fighter_get_charge_preparation_timer(fid);
+		if (charge_prep > 0.f) {
+			game.state.fighter_set_charge_preparation_timer(fid, std::max(0.f, charge_prep - edt));
+			if (selected && charge_prep <= edt) {
+				game.state.fighter_set_charge_timer(fid, CHARGE_DURATION);
+			} else if (!selected) {
+				game.state.fighter_set_charge_preparation_timer(fid, 0.f);
+			}
+			speed_mod *= 0.2f;
+		}
+
+		auto invis_prep = game.state.fighter_get_invisibility_preparation_timer(fid);
+		if (invis_prep > 0.f) {
+			game.state.fighter_set_invisibility_preparation_timer(fid, std::max(0.f, invis_prep - edt));
+
+			if (invis_prep - edt <= 0.f) {
+				event_notification(game, fid, update::EVENT_START_INVISIBILITY);
+				game.state.fighter_set_invisible_timer(fid, INVISIBILITY_DURATION);
+			}
+		}
+		
+		auto attack_timer = game.state.fighter_get_attack_timer(fid);
+		if (attack_timer > 0.f) {
+			game.state.fighter_set_attack_timer(fid, std::max(0.f, attack_timer - edt));
+			if (selected) {
+				if (attack_timer - edt < 0.f) {
+					if (distance(game, fid, selected) < ATTACK_RANGE) {
+						game.state.fighter_set_hp(selected, 
+							game.state.fighter_get_hp(selected) - 1
+						);
+					}
+				}
+			} else {
+				game.state.fighter_set_attack_timer(fid, 0.f);
+			}
 		}
 
 
@@ -171,7 +318,7 @@ static game_session game { };
 
 int consume_command(game_session& game, int connection, command::data command) {
 	
-	printf("new command\n");
+	printf("new command %d\n", command.command_type);
 
 	dcon::player_id id { (dcon::player_id::value_base_t) command.actor };
 
@@ -241,7 +388,15 @@ int consume_command(game_session& game, int connection, command::data command) {
 	if (command.command_type == command::MOVE) {
 		game.state.fighter_set_tx(fighter, command.target_x);
 		game.state.fighter_set_ty(fighter, command.target_y);
-	} else if (command.command_type == command::SPELL) {
+	} else if (
+		command.command_type == command::SPELL 
+		&& !is_busy(game, fighter)
+	) {
+		
+		if (game.state.fighter_get_character_class(fighter) != command::CLASS_MAGE) {
+			return 0;
+		}
+
 		dcon::fighter_id selected { (dcon::fighter_id::value_base_t) command.target_actor };
 			
 		// validation
@@ -259,17 +414,77 @@ int consume_command(game_session& game, int connection, command::data command) {
 		if (target_room != lobby) {
 			return 0;
 		}
+		if (game.state.fighter_get_invisible_timer(selected) > 0.f) {
+			return 0;
+		}
 
 		printf("start casting\n");
-		event_notification(game, fighter, update::EVENT_START_CAST);
-		game.state.fighter_set_spell_progress(fighter, 1.f);		
+		event_notification(game, fighter, update::EVENT_START_CAST, SPELL_PREPARATION, 0.f);
+		game.state.fighter_set_spell_progress(fighter, SPELL_PREPARATION);		
+		game.state.force_create_selection(selected, fighter);
+	} else if (command.command_type == command::SELECTION) { 
+		dcon::fighter_id selected { (dcon::fighter_id::value_base_t) command.target_actor };
+		if (!game.state.fighter_is_valid(selected)) {
+			return 0;
+		}
+		auto target_control = game.state.fighter_get_player_control(selected);
+		auto target_player = game.state.player_control_get_controller(target_control);
+		auto target_location = game.state.player_get_location(target_player);
+		auto target_room = game.state.location_get_where(target_location);
+		if (target_room != lobby) {
+			return 0;
+		}
+		if (game.state.fighter_get_invisible_timer(selected) > 0.f) {
+			return 0;
+		}
 		game.state.force_create_selection(selected, fighter);
 	} else if (
 		command.command_type == command::PARRY 
 		&& game.state.fighter_get_no_damage_timer(fighter) == 0.f
+		&& !is_busy(game, fighter)
 	) {
-		event_notification(game, fighter, update::EVENT_START_PARRY);
+		event_notification(game, fighter, update::EVENT_START_PARRY, PARRY_PREPARATION, 0.f);
 		game.state.fighter_set_parry_progress(fighter, PARRY_PREPARATION);
+	} else if (
+		command.command_type == command::ATTACK
+		&& !is_busy(game, fighter)
+	) {
+		if (game.state.fighter_get_character_class(fighter) == command::CLASS_MAGE) {
+			return 0;
+		}
+
+		event_notification(game, fighter, update::EVENT_START_ATTACK, ATTACK_PREPARATION, 0.f);
+		game.state.fighter_set_attack_timer(fighter, ATTACK_PREPARATION);
+	} else if (
+		command.command_type == command::INVISIBILITY
+		&& !is_busy(game, fighter)
+	) {
+		if (game.state.fighter_get_character_class(fighter) != command::CLASS_ROGUE) {
+			return 0;
+		}
+
+		event_notification(
+			game, 
+			fighter, 
+			update::EVENT_START_INVISIBILITY_PREPARATION, 
+			INVISIBILITY_PREPARATION, 0.f
+		);
+		game.state.fighter_set_invisibility_preparation_timer(fighter, INVISIBILITY_PREPARATION);
+	} else if (
+		command.command_type == command::CHARGE
+		&& !is_busy(game, fighter)
+	) {
+		if (game.state.fighter_get_character_class(fighter) != command::CLASS_WARRIOR) {
+			return 0;
+		}
+		printf("charge\n");
+		event_notification(
+			game, 
+			fighter, 
+			update::EVENT_START_CHARGE,
+			CHARGE_PREPARATION, 0.f
+		);
+		game.state.fighter_set_charge_preparation_timer(fighter, CHARGE_PREPARATION);
 	}
 
 	return 0;
@@ -474,6 +689,13 @@ int main(int argc, char const* argv[]) {
 					auto player = game.state.location_get_who(player_location);
 					auto control = game.state.player_get_player_control(player);
 					auto fid = game.state.player_control_get_controlled(control);
+					
+					if (
+						game.state.fighter_get_invisible_timer(fid) > 0.f
+						&& player != dest
+					) {
+						return;
+					}
 
 					update::data to_send {};
 					to_send.id = fid.index();

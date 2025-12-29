@@ -9,6 +9,9 @@ uint8_t PARRY = 3;
 uint8_t SELECT_CLASS = 4;
 uint8_t JOIN_LOBBY = 5;
 uint8_t KNOW_MYSELF = 6;
+uint8_t ATTACK = 7;
+uint8_t INVISIBILITY = 8;
+uint8_t CHARGE = 9;
 
 uint8_t CLASS_MAGE = 0;
 uint8_t CLASS_WARRIOR = 1;
@@ -42,6 +45,11 @@ uint8_t EVENT_NO_DAMAGE = 3;
 uint8_t EVENT_JOIN_LOBBY = 4;
 uint8_t EVENT_JOIN_BATTLE = 5;
 uint8_t EVENT_LEFT_GAME = 6;
+uint8_t EVENT_START_ATTACK = 7;
+uint8_t EVENT_START_INVISIBILITY_PREPARATION = 8;
+uint8_t EVENT_START_INVISIBILITY = 9;
+uint8_t EVENT_STUN = 10;
+uint8_t EVENT_START_CHARGE = 11;
 
 struct data {
 	int32_t id;

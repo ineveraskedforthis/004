@@ -72,6 +72,30 @@ object{
 		name{sprite_id}
 		type{uint16_t}
 	}
+	property{
+		name{invisible_timer}
+		type{float}
+	}
+	property{
+		name{invisibility_preparation_timer}
+		type{float}
+	}
+	property{
+		name{attack_timer}
+		type{float}
+	}
+	property{
+		name{charge_timer}
+		type{float}
+	}
+	property{
+		name{charge_preparation_timer}
+		type{float}
+	}
+	property{
+		name{stunned_timer}
+		type{float}
+	}
 }
 
 object{
