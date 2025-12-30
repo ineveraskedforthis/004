@@ -740,7 +740,8 @@ int main(int argc, char const* argv[]) {
 					to_send.x = game.state.fighter_get_x(fid);
 					to_send.y = game.state.fighter_get_y(fid);
 					to_send.update_type = update::FIGHTER;
-					to_send.additional_data = game.state.fighter_get_hp(fid);	
+					to_send.additional_data = game.state.fighter_get_hp(fid);
+					to_send.belongs_to = game.state.fighter_get_character_class(fid);
 
 					send(connection, (char*)&to_send, sizeof(update::data), 0);
 				});
