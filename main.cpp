@@ -369,6 +369,11 @@ int consume_command(game_session& game, int connection, command::data command) {
 		return 0;
 	}
 
+	if (command.command_type == command::KNOW_MY_BODY) {
+		game.state.player_set_know_my_body(id, true);
+		return 0;
+	}
+
 	dcon::fighter_id fighter = game.state.player_control_get_controlled(control);
 	auto location = game.state.player_get_location(id);
 	auto lobby = game.state.location_get_where(location);
@@ -545,7 +550,7 @@ int read_from_connection (game_session& game, int connection) {
 			event_notification(game, fighter, update::EVENT_LEFT_GAME);
 			printf("delete player %d\n", pid.index());
 			game.state.delete_player(pid);
-			game.state.delete_fighter(fighter);
+			if (fighter) game.state.delete_fighter(fighter);
 		}
 
 		return -1;
@@ -706,7 +711,7 @@ int main(int argc, char const* argv[]) {
 		auto duration_update = std::chrono::duration_cast<std::chrono::microseconds> (
 			then - last_server_state_update
 		);
-		if (duration_update.count() > 1000 * 1000 / 30) {
+		if (duration_update.count() > 1000 * 1000 / 60) {
 			game.state.for_each_player([&](auto dest) {
 				auto connection = game.state.player_get_connection(dest);
 				if (!FD_ISSET(connection, &active_connections)) {
@@ -715,6 +720,8 @@ int main(int argc, char const* argv[]) {
 
 				auto location = game.state.player_get_location(dest);
 				auto lobby = game.state.location_get_where(location);
+				auto dest_control = game.state.player_get_player_control(dest);
+				auto dest_fid = game.state.player_control_get_controlled(dest_control);
 
 				game.state.room_for_each_location(lobby, [&](auto player_location){
 					auto player = game.state.location_get_who(player_location);
@@ -759,6 +766,18 @@ int main(int argc, char const* argv[]) {
 					to_send.id = dest.index();
 					to_send.belongs_to = 1;
 					to_send.update_type = update::SEND_ID;
+					send(connection, (char*)&to_send, sizeof(update::data), 0);
+				}
+				
+				if (
+					!game.state.player_get_know_my_body(dest)
+					&& dest_fid
+				) {
+					printf("Notify player of their fighter\n");
+					update::data to_send {};
+					to_send.id = dest_fid.index();
+					to_send.belongs_to = 1;
+					to_send.update_type = update::SEND_FIGHTER_ID;
 					send(connection, (char*)&to_send, sizeof(update::data), 0);
 				}
 				

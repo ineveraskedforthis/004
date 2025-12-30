@@ -161,6 +161,10 @@ object{
 		name{know_myself}
 		type{bitfield}
 	}
+	property{
+		name{know_my_body}
+		type{bitfield}
+	}
 }
 
 object{

@@ -12,6 +12,7 @@ uint8_t KNOW_MYSELF = 6;
 uint8_t ATTACK = 7;
 uint8_t INVISIBILITY_PREPARATION = 8;
 uint8_t CHARGE_PREPARATION = 9;
+uint8_t KNOW_MY_BODY = 10;
 
 uint8_t CLASS_MAGE = 0;
 uint8_t CLASS_WARRIOR = 1;
@@ -37,6 +38,7 @@ uint8_t FIGHTER = 0;
 uint8_t SPELL = 1;
 uint8_t SEND_ID = 2;
 uint8_t EVENT = 3;
+uint8_t SEND_FIGHTER_ID = 4;
 
 uint8_t EVENT_NONE = 0;
 uint8_t EVENT_START_CAST = 1;
