@@ -254,8 +254,9 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 						}
 						if (distance(game, fid, selected) < ATTACK_RANGE) {
 							game.state.fighter_set_hp(selected, 
-								game.state.fighter_get_hp(selected) - damage
+								std::max(0, game.state.fighter_get_hp(selected) - damage)
 							);
+							game.state.fighter_set_invisible_timer(fid, 0.f);
 						}
 					}
 				}
