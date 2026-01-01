@@ -720,7 +720,7 @@ int main(int argc, char const* argv[]) {
 		auto duration_update = std::chrono::duration_cast<std::chrono::microseconds> (
 			then - last_server_state_update
 		);
-		if (duration_update.count() > 1000 * 1000 / 60) {
+		if (duration_update.count() > 1000 * 1000 / 200) {
 			game.state.for_each_player([&](auto dest) {
 				auto connection = game.state.player_get_connection(dest);
 				if (!FD_ISSET(connection, &active_connections)) {
@@ -797,6 +797,6 @@ int main(int argc, char const* argv[]) {
 			now = then;
 		}
 
-		usleep(100);
+		usleep(10);
 	}
 }
