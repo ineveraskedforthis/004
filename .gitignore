@@ -2,6 +2,7 @@ DataContainer*
 DCON
 .ninja_log
 compilation_database.json
+compile_commands.json
 data.hpp
 data_ids.hpp
 server.exe
@@ -9,3 +10,5 @@ analysis*
 callgrind*
 gmon.out
 output
+*.swp
+.cache

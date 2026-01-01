@@ -1,3 +1,12 @@
+#include <cmath>
+
+#ifndef floorf
+namespace std {
+	float floorf(float x) { return ::floor(x); }
+	float ceilf(float x) { return ::ceil(x); }
+}
+#endif
+
 #include "iostream"
 #include "data.hpp"
 #include <sys/socket.h>
@@ -6,7 +15,6 @@
 #include <sys/select.h>
 #include <signal.h>
 #include <chrono>
-#include <vector>
 
 #include "network_containers.hpp"
 
