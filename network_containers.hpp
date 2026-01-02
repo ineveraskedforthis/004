@@ -14,6 +14,7 @@ inline constexpr uint8_t ATTACK = 7;
 inline constexpr uint8_t INVISIBILITY_PREPARATION = 8;
 inline constexpr uint8_t CHARGE_PREPARATION = 9;
 inline constexpr uint8_t KNOW_MY_BODY = 10;
+inline constexpr uint8_t JUMP_BEHIND = 11;
 
 inline constexpr uint8_t CLASS_MAGE = 0;
 inline constexpr uint8_t CLASS_WARRIOR = 1;

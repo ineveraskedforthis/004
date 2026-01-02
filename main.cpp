@@ -29,12 +29,11 @@ constexpr float INVISIBILITY_DURATION = 13.f;
 
 constexpr float SPELL_PREPARATION = 1.f;
 
-constexpr float CHARGE_PREPARATION = 0.5f;
-constexpr float CHARGE_DURATION = 2.f;
+constexpr float CHARGE_PREPARATION = 2.f;
 
 constexpr float ATTACK_PREPARATION = 0.5f;
 
-constexpr float ATTACK_RANGE = 0.1f;
+constexpr float ATTACK_RANGE = 0.2f;
 
 constexpr float MEDIUM_STUN_DURATION = 1.f;
 constexpr float SHORT_STUN_DURATION = 0.1f;
@@ -42,7 +41,6 @@ constexpr float SHORT_STUN_DURATION = 0.1f;
 struct game_session {
         dcon::data_container state{};
 };
-
 
 void event_notification(game_session& game, dcon::fighter_id fid, uint8_t event_type) {
 	game.state.for_each_player([&](auto dest) {
@@ -87,6 +85,39 @@ bool is_busy(game_session& game, dcon::fighter_id fid) {
 	if (game.state.fighter_get_action_timer(fid) > 0.f) return true;
 
 	return false;
+}
+
+float move_speed_from_wrong_direction(
+	game_session& game, 
+	dcon::fighter_id fid,
+	float dx, 
+	float dy
+) {
+	if (dx == 0.f && dy== 0.f) {
+		return 1.f;
+	}
+	auto desired_direction = atan2f(dy, dx);
+	auto direction = game.state.fighter_get_direction(fid);
+	return 0.1 + std::max(0.f, cosf(direction - desired_direction));
+}
+
+void rotate_toward(game_session& game, float dt, dcon::fighter_id fid, float dx, float dy, float rotation_speed) {
+	if (dx != 0 || dy != 0) {
+		auto desired_direction = atan2f(dy, dx);
+		auto direction = game.state.fighter_get_direction(fid);
+		auto diff = fmodf(desired_direction - direction + 4 * PI, 2 * PI);
+		if (diff <= rotation_speed * dt) {
+			direction = desired_direction;
+		} else if (diff <= PI) {
+			direction = direction + rotation_speed * dt;
+		} else if (diff < 2 * PI - rotation_speed * dt) {
+			direction = direction - rotation_speed * dt;
+		} else {
+			direction = desired_direction;
+		}
+		direction = fmodf(direction + 2 * PI, 2 * PI);
+		game.state.fighter_set_direction(fid, direction);
+	}
 }
 
 void stun(game_session& game, dcon::fighter_id fid, float duration) {
@@ -161,6 +192,9 @@ void deal_damage(game_session& game, dcon::fighter_id origin, dcon::fighter_id t
 
 void melee_arc_damage(game_session& game, dcon::fighter_id origin) {
 	auto damage = 1;
+	if (game.state.fighter_get_invisible_timer(origin) > 0.f) {
+		damage *= 2;
+	}
 
 	auto x = game.state.fighter_get_x(origin);
 	auto y = game.state.fighter_get_y(origin);
@@ -182,81 +216,156 @@ void melee_arc_damage(game_session& game, dcon::fighter_id origin) {
 
 		auto norm = sqrt(dx * dx + dy * dy);
 
-		if (norm < ATTACK_RANGE) {
-			deal_damage(game, origin, target, 1);
+		auto dir = atan2f(dy, dx);
+
+		auto dif = fmodf(abs(dir - game.state.fighter_get_direction(origin)), 2 * PI);
+
+		bool good_direction = false;
+		if (dif < 1 || dif > 2 * PI - 1) {
+			good_direction = true;
+		}
+
+		if (norm > ATTACK_RANGE || (dx == 0.f && dy == 0.f)) {
+			good_direction = false;
+		}
+
+		if (norm < ATTACK_RANGE * 0.1f || good_direction) {
+			if (game.state.fighter_get_no_damage_timer(target) > 0.f) {
+				stun(game, origin, MEDIUM_STUN_DURATION);
+			} else {
+				deal_damage(game, origin, target, damage);
+			}
 		}
 	});
 }
 
-void melee_targeted_damage(game_session& game, dcon::fighter_id origin, dcon::fighter_id target) {
-	auto damage = 1;
-	if (game.state.fighter_get_invisible_timer(origin) > 0.f) {
-		damage *= 2;
-	}
-	bool deal_damage_to_target = false;
-	if (distance(game, origin, target) < ATTACK_RANGE) {
-		deal_damage_to_target = true;
-		auto x = game.state.fighter_get_x(origin);
-		auto y = game.state.fighter_get_y(origin);
-		auto tx = game.state.fighter_get_x(target);
-		auto ty = game.state.fighter_get_y(target);
-		auto dx = tx - x;
-		auto dy = ty - y;
-		game.state.fighter_set_x(origin, x + dx * 0.2f);
-		game.state.fighter_set_y(origin, y + dy * 0.2f);
-		game.state.fighter_set_x(target, tx + dx * 0.3f);
-		game.state.fighter_set_y(target, ty + dy * 0.3f);
-	} else if (distance(game, origin, target) < ATTACK_RANGE * 2) {
-		deal_damage_to_target = true;
-		auto x = game.state.fighter_get_x(origin);
-		auto y = game.state.fighter_get_y(origin);
-		auto tx = game.state.fighter_get_x(target);
-		auto ty = game.state.fighter_get_y(target);
-		auto dx = tx - x;
-		auto dy = ty - y;
-		game.state.fighter_set_x(origin, x + dx * 0.5f);
-		game.state.fighter_set_y(origin, y + dy * 0.5f);
-		game.state.fighter_set_x(target, tx + dx * 0.3f);
-		game.state.fighter_set_y(target, ty + dy * 0.3f);
-	}
+void execute_jump_behind(game_session& game, float dt, bool completed, dcon::fighter_id origin) {
+auto selection = game.state.fighter_get_selection_as_selector(origin);
+	auto selected = game.state.selection_get_selected(selection);
 
-	if (deal_damage_to_target) {
-		if (game.state.fighter_get_no_damage_timer(target) > 0.f) {
-			stun(game, target, SHORT_STUN_DURATION);
+	if (selected) {
+		float x = game.state.fighter_get_x(origin);
+		float y = game.state.fighter_get_y(origin);
+
+		float target_direction = game.state.fighter_get_direction(selected);
+		float tx = game.state.fighter_get_x(selected) - cosf(target_direction) * ATTACK_RANGE * 0.5f;
+		float ty = game.state.fighter_get_y(selected) - sinf(target_direction) * ATTACK_RANGE * 0.5f;
+		
+		float dx = tx - x;
+		float dy = ty - y;
+
+		float n = sqrtf(dx * dx + dy * dy);
+
+		if (n < ATTACK_RANGE) {
+			game.state.fighter_set_x(origin, tx);
+			game.state.fighter_set_y(origin, ty);
+			completed = true;
+		} else {					
+			game.state.fighter_set_x(origin, x + dx / n * dt);
+			game.state.fighter_set_y(origin, y + dy / n  * dt);
+		}
+
+		if (completed) {
+				
+			if (selected) {
+				x = game.state.fighter_get_x(origin);
+				y = game.state.fighter_get_y(origin);
+				float tx = game.state.fighter_get_x(selected);
+				float ty = game.state.fighter_get_y(selected);
+				float dx = tx - x;
+				float dy = ty - y;
+
+				if (dx != 0 || dy != 0) {
+					float dir = atan2f(dy, dx);
+					game.state.fighter_set_direction(origin, fmodf(dir + 2.f * PI, 2 * PI));
+				}
+			}
+			game.state.fighter_set_action_type(origin, command::MOVE);
+			game.state.fighter_set_action_timer(origin, 0.f);
+		} 
+	}
+}
+
+void execute_attack(game_session& game, float dt, bool completed, dcon::fighter_id origin) {
+	// move closer to target if it's far away
+	// if there is no target, we move toward current direction
+	// at the end we deal damage to fighters in the area
+
+	auto selection = game.state.fighter_get_selection_as_selector(origin);
+	auto selected = game.state.selection_get_selected(selection);
+
+	if (selected) {
+		if (completed) {
+			melee_arc_damage(game, origin);
+			game.state.fighter_set_action_type(origin, command::MOVE);
+			game.state.fighter_set_action_timer(origin, 0.f);
 		} else {
-			deal_damage(game, origin, target, damage);
+			float x = game.state.fighter_get_x(origin);
+			float y = game.state.fighter_get_y(origin);
+			
+			float dx = game.state.fighter_get_x(selected) - x;
+			float dy = game.state.fighter_get_y(selected) - y;
+
+			rotate_toward(game, dt, origin, dx, dy, 3.f);
+			float speed_mod = move_speed_from_wrong_direction(game, origin, dx, dy);
+			
+			float n = sqrtf(dx * dx + dy * dy);
+
+			if (n > ATTACK_RANGE * 0.5) {
+				game.state.fighter_set_x(origin, x + dx / n * 0.9 * dt * speed_mod);
+				game.state.fighter_set_y(origin, y + dy / n * 0.9 * dt * speed_mod);
+			}
+		}
+	} else {
+		if (completed) {
+			melee_arc_damage(game, origin);
+			game.state.fighter_set_action_type(origin, command::MOVE);
+			game.state.fighter_set_action_timer(origin, 0.f);
+		} else {
+			float direction = game.state.fighter_get_direction(origin);
+			float dx = cosf(direction);
+			float dy = sinf(direction);
+
+			float x = game.state.fighter_get_x(origin);
+			float y = game.state.fighter_get_y(origin);
+
+			game.state.fighter_set_x(origin, x + dx * 0.9 * dt);
+			game.state.fighter_set_y(origin, y + dy * 0.9 * dt);
 		}
 	}
 }
 
-void charge(game_session& game, dcon::fighter_id origin, dcon::fighter_id target, float dt, float speed_mod) {
-	game.state.fighter_set_charge_timer(target,
-		std::max(0.f, game.state.fighter_get_charge_timer(target) - dt)
-	);
+void execute_charge(game_session& game, float dt, bool completed, dcon::fighter_id origin) {
+	auto selection = game.state.fighter_get_selection_as_selector(origin);
+	auto selected = game.state.selection_get_selected(selection);
 
-	auto x = game.state.fighter_get_x(origin);
-	auto y = game.state.fighter_get_y(origin);
+	if (selected) {
+		float x = game.state.fighter_get_x(origin);
+		float y = game.state.fighter_get_y(origin);
+		
+		float dx = game.state.fighter_get_x(selected) - x;
+		float dy = game.state.fighter_get_y(selected) - y;
 
-	auto tx = game.state.fighter_get_x(target);
-	auto ty = game.state.fighter_get_y(target);
-	game.state.fighter_set_tx(origin, 0.f);
-	game.state.fighter_set_ty(origin, 0.f);
-	auto dx = tx - x;
-	auto dy = ty - y;
-	auto norm = sqrt(dx * dx + dy * dy);
-	if (norm > ATTACK_RANGE * 0.9) {
-		dx /= norm;
-		dy /= norm;
-	} else {
-		game.state.fighter_set_charge_timer(origin, 0.f);
-		stun(game, target, MEDIUM_STUN_DURATION);
+		float n = sqrtf(dx * dx + dy * dy);
+
+		if (n < ATTACK_RANGE) {
+			completed = true;
+		} else {
+			
+			rotate_toward(game, dt, origin, dx, dy, 3.f);
+			float speed_mod = move_speed_from_wrong_direction(game, origin, dx, dy);
+
+			game.state.fighter_set_x(origin, x + dx / n * 2 * dt * speed_mod);
+			game.state.fighter_set_y(origin, y + dy / n * 2 * dt * speed_mod);
+		}
+
+		if (completed && n < ATTACK_RANGE) {
+			stun(game, selected, MEDIUM_STUN_DURATION);
+			game.state.fighter_set_action_type(origin, command::MOVE);
+			game.state.fighter_set_action_timer(origin, 0.f);
+		} 
 	}
-
-	game.state.fighter_set_x(origin, x + dx * dt * speed_mod);
-	game.state.fighter_set_y(origin, y + dy * dt * speed_mod);
 }
-
-
 
 void update_game_state(game_session& game, std::chrono::microseconds last_tick) {
 	float dt = float(last_tick.count()) / 1'000'000.f;
@@ -270,7 +379,9 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		auto dy = ty;
 
 		auto rotation_speed = 4.5f;
-		float speed_mod = 0.7f;
+		float speed_mod = 0.7f * move_speed_from_wrong_direction(game, fid, dx, dy);
+
+		rotate_toward(game, dt, fid, dx, dy, rotation_speed);
 
 		auto stunned = game.state.fighter_get_stunned_timer(fid);	
 		float progress_mod = 1.f;
@@ -282,31 +393,8 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 			rotation_speed = 0.f;
 		}
 
-
-		if (dx != 0 || dy != 0) {
-			auto desired_direction = atan2f(dy, dx);
-			auto direction = game.state.fighter_get_direction(fid);
-
-			auto diff = fmodf(desired_direction - direction + 2 * PI, 2 * PI);
-
-			speed_mod *= 0.1 + std::max(0.f, cosf(direction - desired_direction));
-
-			if (diff <= rotation_speed * dt) {
-				direction = desired_direction;
-			} else if (diff <= PI) {
-				direction = direction + rotation_speed * dt;
-			} else if (diff < 2 * PI - rotation_speed * dt) {
-				direction = direction - rotation_speed * dt;
-			} else {
-				direction = desired_direction;
-			}
-
-			direction = fmodf(direction + 2 * PI, 2 * PI);
-			game.state.fighter_set_direction(fid, direction);
-		}
-
 		auto norm = sqrtf(dx * dx + dy * dy);
-		if (norm > dt) {
+		if (norm > 1.f) {
 			dx /= norm;
 			dy /= norm;
 		}
@@ -348,35 +436,24 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 
 			game.state.fighter_set_action_timer(fid, std::max(0.f, progress - edt));
 
-			// during action
+			bool completed = progress - edt <= 0.f;
 
-			if (progress - edt <= 0.f) {
-				// on action end
-				if (selected) {
-					if (action == command::SPELL) {
+			if (action == command::ATTACK) {
+				execute_attack(game, dt, completed, fid);
+			} else if (action == command::CHARGE_PREPARATION) {
+				execute_charge(game, dt, completed, fid);
+			} else if (action == command::JUMP_BEHIND) {
+				execute_jump_behind(game, dt, completed, fid);
+			} else {
+				if (completed) {
+					if (action == command::SPELL && selected) {
 						shoot_spell(game, fid, selected);
-					} else if (action == command::CHARGE_PREPARATION) {
-						game.state.fighter_set_charge_timer(
-							fid, CHARGE_DURATION
-						);
-					} else if (action == command::ATTACK) {
-						melee_targeted_damage(game, fid, selected);
+					} else if (action == command::INVISIBILITY_PREPARATION) {
+						event_notification(game, fid, update::EVENT_START_INVISIBILITY);
+						game.state.fighter_set_invisible_timer(fid, INVISIBILITY_DURATION);
 					}
-				} else {
-					if (action == command::ATTACK) {
-						melee_arc_damage(game, fid);
-					}
-				}
 
-				if (action == command::PARRY) {
-					event_notification(
-						game, fid, update::EVENT_NO_DAMAGE, PARRY_DURATION, 0.f
-					);
-					game.state.fighter_set_no_damage_timer(fid, PARRY_DURATION);
-					game.state.fighter_set_parry_cooldown_timer(fid, PARRY_DURATION * 2);
-				} else if (action == command::INVISIBILITY_PREPARATION) {
-					event_notification(game, fid, update::EVENT_START_INVISIBILITY);
-					game.state.fighter_set_invisible_timer(fid, INVISIBILITY_DURATION);
+					game.state.fighter_set_action_type(fid, command::MOVE);
 				}
 			}
 		}
@@ -395,24 +472,24 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		if (cooldown > 0.f) {
 			game.state.fighter_set_parry_cooldown_timer(fid, std::max(0.f, cooldown - dt));
 		} 
-		auto charging = game.state.fighter_get_charge_timer(fid);
-		if (charging == 0.f) {
+		if (game.state.fighter_get_action_type(fid) == command::MOVE) {
 			x = game.state.fighter_get_x(fid);
 			y = game.state.fighter_get_y(fid);
 			x += dx * dt * speed_mod;
 			y += dy * dt * speed_mod;
-
-			auto norm_f = sqrt(x * x + y * y);
-			if (norm_f > 1.f) {
-				x /= norm_f;
-				y /= norm_f;
-			}
-
 			game.state.fighter_set_x(fid, x);
 			game.state.fighter_set_y(fid, y);
-		} else {
-			charge(game, fid, selected, dt, speed_mod);
 		}
+		
+		x = game.state.fighter_get_x(fid);
+		y = game.state.fighter_get_y(fid);
+		auto norm_f = sqrt(x * x + y * y);
+		if (norm_f > 1.f) {
+			x /= norm_f;
+			y /= norm_f;
+		}
+		game.state.fighter_set_x(fid, x);
+		game.state.fighter_set_y(fid, y);
 	});
 
 	std::vector<dcon::projectile_id> marked_for_deletion_projectile;
@@ -606,8 +683,11 @@ int consume_command(game_session& game, int connection, command::data command) {
 		&& game.state.fighter_get_parry_cooldown_timer(fighter) == 0.f
 		&& !is_busy(game, fighter)
 	) {
-		event_notification(game, fighter, update::EVENT_START_PARRY, PARRY_PREPARATION, 0.f);
 		game.state.fighter_set_action_timer(fighter, PARRY_PREPARATION);
+		game.state.fighter_set_no_damage_timer(fighter, PARRY_PREPARATION);
+		game.state.fighter_set_parry_cooldown_timer(fighter, 1.f);
+		event_notification(game, fighter, update::EVENT_START_PARRY, PARRY_PREPARATION, 0.f);
+		event_notification(game, fighter, update::EVENT_NO_DAMAGE, PARRY_PREPARATION, 0.f);
 		game.state.fighter_set_action_type(fighter, command::PARRY);
 	} else if (
 		command.command_type == command::ATTACK
@@ -620,6 +700,17 @@ int consume_command(game_session& game, int connection, command::data command) {
 		event_notification(game, fighter, update::EVENT_START_ATTACK, ATTACK_PREPARATION, 0.f);
 		game.state.fighter_set_action_timer(fighter, ATTACK_PREPARATION);
 		game.state.fighter_set_action_type(fighter, command::ATTACK);
+	} else if (
+		command.command_type == command::JUMP_BEHIND
+		&& !is_busy(game, fighter)
+	) {
+		if (game.state.fighter_get_character_class(fighter) != command::CLASS_ROGUE) {
+			return 0;
+		}
+
+		event_notification(game, fighter, update::EVENT_START_ATTACK, ATTACK_PREPARATION, 0.f);
+		game.state.fighter_set_action_timer(fighter, 0.1f);
+		game.state.fighter_set_action_type(fighter, command::JUMP_BEHIND);
 	} else if (
 		command.command_type == command::INVISIBILITY_PREPARATION
 		&& !is_busy(game, fighter)
@@ -796,7 +887,7 @@ int main(int argc, char const* argv[]) {
 	auto test_room = game.state.create_room();
 	auto test_fighter = game.state.create_fighter();
 	auto test_player = game.state.create_player();
-	game.state.fighter_set_hp(test_fighter, 5);
+	game.state.fighter_set_hp(test_fighter, 20);
 	game.state.fighter_set_controller_from_player_control(test_fighter, test_player);
 	game.state.player_set_where_from_location(test_player, test_room);
 
