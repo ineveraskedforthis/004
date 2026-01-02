@@ -32,7 +32,7 @@ constexpr float SPELL_PREPARATION = 1.f;
 constexpr float CHARGE_PREPARATION = 0.5f;
 constexpr float CHARGE_DURATION = 2.f;
 
-constexpr float ATTACK_PREPARATION = 0.2f;
+constexpr float ATTACK_PREPARATION = 0.5f;
 
 constexpr float ATTACK_RANGE = 0.1f;
 
@@ -51,7 +51,8 @@ void event_notification(game_session& game, dcon::fighter_id fid, uint8_t event_
 		to_send.update_type = update::EVENT;
 		to_send.event_type = event_type;
 		auto connection = game.state.player_get_connection(dest);
-		send(connection, (char*)&to_send, sizeof(update::data), 0);
+		if (connection)
+			send(connection, (char*)&to_send, sizeof(update::data), 0);
 	});
 }
 
@@ -107,7 +108,7 @@ float distance(game_session& game, dcon::fighter_id a, dcon::fighter_id b) {
 	auto dx = xb - xa;
 	auto dy = yb - ya;
 
-	return sqrt(dx * dx + dy * dy);
+	return sqrtf(dx * dx + dy * dy);
 }
 
 bool can_be_selected(game_session& game, dcon::fighter_id origin, dcon::fighter_id candidate) {
@@ -169,6 +170,10 @@ void melee_arc_damage(game_session& game, dcon::fighter_id origin) {
 			return;
 		}
 
+		if (target == origin) {
+			return;
+		}
+
 		auto tx = game.state.fighter_get_x(target);
 		auto ty = game.state.fighter_get_y(target);
 
@@ -188,22 +193,31 @@ void melee_targeted_damage(game_session& game, dcon::fighter_id origin, dcon::fi
 	if (game.state.fighter_get_invisible_timer(origin) > 0.f) {
 		damage *= 2;
 	}
-	bool deal_damage_to_target = true;
+	bool deal_damage_to_target = false;
 	if (distance(game, origin, target) < ATTACK_RANGE) {
 		deal_damage_to_target = true;
-	} else if (distance(game, origin, target) < ATTACK_RANGE * 2) {
-		deal_damage_to_target = true;
-
 		auto x = game.state.fighter_get_x(origin);
 		auto y = game.state.fighter_get_y(origin);
 		auto tx = game.state.fighter_get_x(target);
 		auto ty = game.state.fighter_get_y(target);
 		auto dx = tx - x;
 		auto dy = ty - y;
-		game.state.fighter_set_x(origin, x + dx * 0.5);
-		game.state.fighter_set_y(origin, y + dy * 0.5);
-		game.state.fighter_set_x(target, x + dx * 0.1);
-		game.state.fighter_set_y(target, y + dy * 0.1);
+		game.state.fighter_set_x(origin, x + dx * 0.2f);
+		game.state.fighter_set_y(origin, y + dy * 0.2f);
+		game.state.fighter_set_x(target, tx + dx * 0.3f);
+		game.state.fighter_set_y(target, ty + dy * 0.3f);
+	} else if (distance(game, origin, target) < ATTACK_RANGE * 2) {
+		deal_damage_to_target = true;
+		auto x = game.state.fighter_get_x(origin);
+		auto y = game.state.fighter_get_y(origin);
+		auto tx = game.state.fighter_get_x(target);
+		auto ty = game.state.fighter_get_y(target);
+		auto dx = tx - x;
+		auto dy = ty - y;
+		game.state.fighter_set_x(origin, x + dx * 0.5f);
+		game.state.fighter_set_y(origin, y + dy * 0.5f);
+		game.state.fighter_set_x(target, tx + dx * 0.3f);
+		game.state.fighter_set_y(target, ty + dy * 0.3f);
 	}
 
 	if (deal_damage_to_target) {
@@ -255,7 +269,7 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		auto dx = tx;
 		auto dy = ty;
 
-		auto rotation_speed = 3;
+		auto rotation_speed = 4.5f;
 		float speed_mod = 0.7f;
 
 		auto stunned = game.state.fighter_get_stunned_timer(fid);	
@@ -383,6 +397,8 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		} 
 		auto charging = game.state.fighter_get_charge_timer(fid);
 		if (charging == 0.f) {
+			x = game.state.fighter_get_x(fid);
+			y = game.state.fighter_get_y(fid);
 			x += dx * dt * speed_mod;
 			y += dy * dt * speed_mod;
 
@@ -777,7 +793,13 @@ int main(int argc, char const* argv[]) {
 
 	game.state.create_room();
 	game.state.create_room();
-	game.state.create_room();
+	auto test_room = game.state.create_room();
+	auto test_fighter = game.state.create_fighter();
+	auto test_player = game.state.create_player();
+	game.state.fighter_set_hp(test_fighter, 5);
+	game.state.fighter_set_controller_from_player_control(test_fighter, test_player);
+	game.state.player_set_where_from_location(test_player, test_room);
+
 
 //	int counter = 1000 * 30;
 
