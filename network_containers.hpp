@@ -53,6 +53,7 @@ inline constexpr uint8_t EVENT_START_INVISIBILITY_PREPARATION = 8;
 inline constexpr uint8_t EVENT_START_INVISIBILITY = 9;
 inline constexpr uint8_t EVENT_STUN = 10;
 inline constexpr uint8_t EVENT_START_CHARGE = 11;
+inline constexpr uint8_t EVENT_PLAYER_DIED = 12;
 
 struct data {
 	int32_t id;

@@ -444,9 +444,13 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		}
 	});
 
-	//for (int i = 0; i < int(marked_for_deletion_fighter.size()); ++i) {
-	//	game.state.delete_fighter(marked_for_deletion_fighter[i]);
-	//}
+	for (int i = 0; i < int(marked_for_deletion_fighter.size()); ++i) {
+		auto fid = marked_for_deletion_fighter[i];
+		auto pid = game.state.fighter_get_controller_from_player_control(fid);
+		game.state.delete_fighter(fid);
+		game.state.player_set_know_my_body(pid, false);
+		event_notification_to_player(game, pid, update::EVENT_PLAYER_DIED);
+	}
 }
 
 static game_session game { };
@@ -511,6 +515,7 @@ int consume_command(game_session& game, int connection, command::data command) {
 				game.state.fighter_set_hp(fid, 5);
 				game.state.force_create_player_control(id, fid);
 				game.state.player_set_know_myself(id, false);
+				game.state.player_set_know_my_body(id, false);
 
 				event_notification_to_player(game, id, update::EVENT_JOIN_BATTLE);
 
@@ -658,7 +663,9 @@ int read_from_connection (game_session& game, int connection) {
 			event_notification(game, fighter, update::EVENT_LEFT_GAME);
 			printf("delete player %d\n", pid.index());
 			game.state.delete_player(pid);
-			if (fighter) game.state.delete_fighter(fighter);
+			if (fighter) {
+				game.state.delete_fighter(fighter);
+			}
 		}
 
 		return -1;
