@@ -258,6 +258,16 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		auto rotation_speed = 3;
 		float speed_mod = 0.7f;
 
+		auto stunned = game.state.fighter_get_stunned_timer(fid);	
+		float progress_mod = 1.f;
+
+		if (stunned > 0.f) {
+			game.state.fighter_set_stunned_timer(fid, std::max(0.f, stunned - dt));
+			speed_mod = 0.f;
+			progress_mod = 0.f;
+			rotation_speed = 0.f;
+		}
+
 
 		if (dx != 0 || dy != 0) {
 			auto desired_direction = atan2f(dy, dx);
@@ -287,7 +297,6 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 			dy /= norm;
 		}
 
-		float progress_mod = 1.f;
 		float progress = game.state.fighter_get_action_timer(fid);
 
 		auto control = game.state.fighter_get_player_control(fid);
@@ -305,12 +314,7 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 			selection = dcon::selection_id {};
 		}
 
-		auto stunned = game.state.fighter_get_stunned_timer(fid);
-		if (stunned > 0.f) {
-			game.state.fighter_set_stunned_timer(fid, std::max(0.f, stunned - dt));
-			speed_mod = 0.f;
-			progress_mod = 0.f;
-		}
+		
 		float edt = progress_mod * dt;
 
 		if (progress > 0.f) {
@@ -373,6 +377,10 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 			speed_mod *= 2.f;
 			game.state.fighter_set_invisible_timer(fid, std::max(0.f, invisible - dt));
 		}
+		float cooldown = game.state.fighter_get_parry_cooldown_timer(fid);
+		if (cooldown > 0.f) {
+			game.state.fighter_set_parry_cooldown_timer(fid, std::max(0.f, cooldown - dt));
+		} 
 		auto charging = game.state.fighter_get_charge_timer(fid);
 		if (charging == 0.f) {
 			x += dx * dt * speed_mod;
@@ -572,6 +580,7 @@ int consume_command(game_session& game, int connection, command::data command) {
 	} else if (
 		command.command_type == command::PARRY
 		&& game.state.fighter_get_no_damage_timer(fighter) == 0.f
+		&& game.state.fighter_get_parry_cooldown_timer(fighter) == 0.f
 		&& !is_busy(game, fighter)
 	) {
 		event_notification(game, fighter, update::EVENT_START_PARRY, PARRY_PREPARATION, 0.f);
