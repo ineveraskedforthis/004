@@ -69,6 +69,7 @@ struct udp_data {
 	int32_t id;
 	float x;
 	float y;
+	float z;
 	uint8_t update_type;
 	uint8_t belongs_to;
 	uint8_t additional_data;
@@ -78,7 +79,7 @@ struct udp_data {
 }
 
 static_assert(sizeof(update::data) == 4 * 4);
-static_assert(sizeof(update::udp_data) == 6 * 4);
+static_assert(sizeof(update::udp_data) == 7 * 4);
 
 constexpr int buffer_size = 256;
 

@@ -21,6 +21,10 @@ object{
 		name{y}
 		type{float}
 	}
+	property{
+		name{direction}
+		type{float}
+	}
 
 	property{
 		name{hp}
@@ -95,6 +99,10 @@ object{
 	}
 	property{
 		name{charge_timer}
+		type{float}
+	}
+	property{
+		name{parry_cooldown_timer}
 		type{float}
 	}
 }
