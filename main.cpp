@@ -152,10 +152,10 @@ void shoot_spell(game_session& game, dcon::fighter_id origin, dcon::fighter_id t
 }
 
 void deal_damage(game_session& game, dcon::fighter_id origin, dcon::fighter_id target, int damage) {
-	game.state.fighter_set_hp(selected,
-		std::max(0, game.state.fighter_get_hp(selected) - damage)
+	game.state.fighter_set_hp(target,
+		std::max(0, game.state.fighter_get_hp(target) - damage)
 	);
-	game.state.fighter_set_invisible_timer(fid, 0.f);
+	game.state.fighter_set_invisible_timer(origin, 0.f);
 }
 
 void melee_arc_damage(game_session& game, dcon::fighter_id origin) {
@@ -178,21 +178,21 @@ void melee_arc_damage(game_session& game, dcon::fighter_id origin) {
 		auto norm = sqrt(dx * dx + dy * dy);
 
 		if (norm < ATTACK_RANGE) {
-			deal_damage(game, origin, target, 1)
+			deal_damage(game, origin, target, 1);
 		}
 	});
 }
 
 void melee_targeted_damage(game_session& game, dcon::fighter_id origin, dcon::fighter_id target) {
 	auto damage = 1;
-	if (game.state.fighter_get_invisible_timer(fid) > 0.f) {
+	if (game.state.fighter_get_invisible_timer(origin) > 0.f) {
 		damage *= 2;
 	}
 	bool deal_damage_to_target = true;
-	if (distance(game, fid, selected) < ATTACK_RANGE) {
-		deal_damage_to_target = true
-	} else if (distance(game, fid, selected) < ATTACK_RANGE * 2) {
-		deal_damage_to_target = true
+	if (distance(game, origin, target) < ATTACK_RANGE) {
+		deal_damage_to_target = true;
+	} else if (distance(game, origin, target) < ATTACK_RANGE * 2) {
+		deal_damage_to_target = true;
 
 		auto x = game.state.fighter_get_x(origin);
 		auto y = game.state.fighter_get_y(origin);
@@ -259,20 +259,20 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		float speed_mod = 0.7f;
 
 
-		if (dx != 0 || dy !== 0) {
-			auto desired_direction = atan2(dy, dy);
+		if (dx != 0 || dy != 0) {
+			auto desired_direction = atan2f(dy, dy);
 			auto direction = game.state.fighter_get_direction(fid);
 
 			auto diff = fmod(desired_direction - direction + 2 * PI, 2 * PI);
 
-			speed_mod *= std::max(0.f, cos(direction - desired_direction));
+			speed_mod *= std::max(0.f, cosf(direction - desired_direction));
 
 			if (diff <= rotation_speed * dt) {
 				direction = desired_direction;
 			} else if (diff <= PI) {
-				direction = direction + rotation_speed * dt
+				direction = direction + rotation_speed * dt;
 			} else if (diff < 2 * PI - rotation_speed * dt) {
-				direction = direction - rotation_speed * dt
+				direction = direction - rotation_speed * dt;
 			} else {
 				direction = desired_direction;
 			}
@@ -280,7 +280,7 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 			direction = fmod(direction + 2 * PI, 2 * PI);
 		}
 
-		auto norm = sqrt(dx * dx + dy * dy);
+		auto norm = sqrtf(dx * dx + dy * dy);
 		if (norm > dt) {
 			dx /= norm;
 			dy /= norm;
@@ -344,23 +344,8 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 						melee_targeted_damage(game, fid, selected);
 					}
 				} else {
-					melee_
 					if (action == command::ATTACK) {
-
-						auto damage = 1;
-						if (game.state.fighter_get_invisible_timer(fid) > 0.f) {
-							damage *= 2;
-						}
-						if (distance(game, fid, selected) < ATTACK_RANGE) {
-							if (game.state.fighter_get_no_damage_timer(fid) > 0.f) {
-								stun(game, fid, SHORT_STUN_DURATION);
-							} else {
-								game.state.fighter_set_hp(selected,
-									std::max(0, game.state.fighter_get_hp(selected) - damage)
-								);
-								game.state.fighter_set_invisible_timer(fid, 0.f);
-							}
-						}
+						melee_arc_damage(game, fid);
 					}
 				}
 
