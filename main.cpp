@@ -87,12 +87,12 @@ bool is_busy(game_session& game, dcon::fighter_id fid) {
 }
 
 void stun(game_session& game, dcon::fighter_id fid, float duration) {
-	game.state.fighter_set_action_timer(fid, 0.f); 
+	game.state.fighter_set_action_timer(fid, 0.f);
 	game.state.fighter_set_charge_timer(fid, 0.f);
 	game.state.fighter_set_action_timer(fid, 0.f);
-	
+
 	game.state.fighter_set_stunned_timer(fid, duration);
-	
+
 	event_notification(game, fid, update::EVENT_STUN, duration, 0.f);
 }
 
@@ -119,7 +119,7 @@ bool can_be_selected(game_session& game, dcon::fighter_id origin, dcon::fighter_
 	auto player = game.state.player_control_get_controller(control);
 	auto location = game.state.player_get_location(player);
 	auto room = game.state.location_get_where(location);
-	
+
 	auto tcontrol = game.state.fighter_get_player_control(candidate);
 	auto tplayer = game.state.player_control_get_controller(tcontrol);
 	auto tlocation = game.state.player_get_location(tplayer);
@@ -135,26 +135,26 @@ void shoot_spell(game_session& game, dcon::fighter_id origin, dcon::fighter_id t
 
 	auto x = game.state.fighter_get_x(origin);
 	auto y = game.state.fighter_get_y(origin);
-	
+
 	auto control = game.state.fighter_get_player_control(origin);
 	auto player = game.state.player_control_get_controller(control);
 	auto location = game.state.player_get_location(player);
 	auto room = game.state.location_get_where(location);
-	
+
 	auto proj = game.state.create_projectile();
 	game.state.projectile_set_x(proj, x);
 	game.state.projectile_set_y(proj, y);
 	game.state.force_create_homing_target(target, proj);
 	game.state.force_create_projectile_location(proj, room);
-	printf("new proj\n");	
+	printf("new proj\n");
 }
 
 
 void charge(game_session& game, dcon::fighter_id origin, dcon::fighter_id target, float dt, float speed_mod) {
-	game.state.fighter_set_charge_timer(target, 
+	game.state.fighter_set_charge_timer(target,
 		std::max(0.f, game.state.fighter_get_charge_timer(target) - dt)
 	);
-	
+
 	auto x = game.state.fighter_get_x(origin);
 	auto y = game.state.fighter_get_y(origin);
 
@@ -195,7 +195,7 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 
 		float speed_mod = 0.7f;
 		float progress_mod = 1.f;
-		float progress = game.state.fighter_get_action_timer(fid);	
+		float progress = game.state.fighter_get_action_timer(fid);
 
 		auto control = game.state.fighter_get_player_control(fid);
 		auto player = game.state.player_control_get_controller(control);
@@ -211,7 +211,7 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 			game.state.delete_selection(selection);
 			selection = dcon::selection_id {};
 		}
-		
+
 		auto stunned = game.state.fighter_get_stunned_timer(fid);
 		if (stunned > 0.f) {
 			game.state.fighter_set_stunned_timer(fid, std::max(0.f, stunned - dt));
@@ -254,14 +254,14 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 							damage *= 2;
 						}
 						if (distance(game, fid, selected) < ATTACK_RANGE) {
-							game.state.fighter_set_hp(selected, 
+							game.state.fighter_set_hp(selected,
 								std::max(0, game.state.fighter_get_hp(selected) - damage)
 							);
 							game.state.fighter_set_invisible_timer(fid, 0.f);
 						}
 					}
 				}
-				
+
 				if (action == command::PARRY) {
 					event_notification(
 						game, fid, update::EVENT_NO_DAMAGE, PARRY_DURATION, 0.f
@@ -298,19 +298,19 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 			game.state.fighter_set_x(fid, x);
 			game.state.fighter_set_y(fid, y);
 		} else {
-			charge(game, fid, selected, dt, speed_mod);	
+			charge(game, fid, selected, dt, speed_mod);
 		}
 	});
 
 	std::vector<dcon::projectile_id> marked_for_deletion_projectile;
-		
+
 	game.state.for_each_projectile([&](auto proj){
 		auto x = game.state.projectile_get_x(proj);
 		auto y = game.state.projectile_get_y(proj);
 
 		auto homing = game.state.projectile_get_homing_target(proj);
 		auto target = game.state.homing_target_get_target(homing);
-		
+
 		auto tx = game.state.fighter_get_x(target);
 		auto ty = game.state.fighter_get_y(target);
 
@@ -355,7 +355,7 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 static game_session game { };
 
 int consume_command(game_session& game, int connection, command::data command) {
-	
+
 	printf("new command %d\n", command.command_type);
 
 	dcon::player_id id { (dcon::player_id::value_base_t) command.actor };
@@ -408,13 +408,13 @@ int consume_command(game_session& game, int connection, command::data command) {
 				if (command.command_data >= command::CLASS_TOTAL) {
 					return 0;
 				}
-	
+
 				auto fid = game.state.create_fighter();
 				game.state.fighter_set_character_class(fid, command.command_data);
 				game.state.fighter_set_hp(fid, 5);
 				game.state.force_create_player_control(id, fid);
 				game.state.player_set_know_myself(id, false);
-				
+
 				event_notification_to_player(game, id, update::EVENT_JOIN_BATTLE);
 
 				return 0;
@@ -435,18 +435,18 @@ int consume_command(game_session& game, int connection, command::data command) {
 		game.state.fighter_set_tx(fighter, command.target_x);
 		game.state.fighter_set_ty(fighter, command.target_y);
 	} else if (
-		command.command_type == command::SPELL 
+		command.command_type == command::SPELL
 		&& !is_busy(game, fighter)
 	) {
-		
+
 		if (game.state.fighter_get_character_class(fighter) != command::CLASS_MAGE) {
 			return 0;
 		}
 
 		dcon::fighter_id selected { (dcon::fighter_id::value_base_t) command.target_actor };
-			
+
 		// validation
-		
+
 		if (!game.state.fighter_is_valid(selected)) {
 			return 0;
 		}
@@ -456,7 +456,7 @@ int consume_command(game_session& game, int connection, command::data command) {
 		auto target_player = game.state.player_control_get_controller(target_control);
 		auto target_location = game.state.player_get_location(target_player);
 		auto target_room = game.state.location_get_where(target_location);
-		
+
 		if (target_room != lobby) {
 			return 0;
 		}
@@ -469,7 +469,7 @@ int consume_command(game_session& game, int connection, command::data command) {
 		game.state.fighter_set_action_timer(fighter, SPELL_PREPARATION);
 		game.state.fighter_set_action_type(fighter, command::SPELL);
 		game.state.force_create_selection(selected, fighter);
-	} else if (command.command_type == command::SELECTION) { 
+	} else if (command.command_type == command::SELECTION) {
 		dcon::fighter_id selected { (dcon::fighter_id::value_base_t) command.target_actor };
 		if (!game.state.fighter_is_valid(selected)) {
 			return 0;
@@ -478,10 +478,10 @@ int consume_command(game_session& game, int connection, command::data command) {
 		if (!can_be_selected(game, fighter, selected)) {
 			return 0;
 		}
-		
+
 		game.state.force_create_selection(selected, fighter);
 	} else if (
-		command.command_type == command::PARRY 
+		command.command_type == command::PARRY
 		&& game.state.fighter_get_no_damage_timer(fighter) == 0.f
 		&& !is_busy(game, fighter)
 	) {
@@ -508,9 +508,9 @@ int consume_command(game_session& game, int connection, command::data command) {
 		}
 
 		event_notification(
-			game, 
-			fighter, 
-			update::EVENT_START_INVISIBILITY_PREPARATION, 
+			game,
+			fighter,
+			update::EVENT_START_INVISIBILITY_PREPARATION,
 			INVISIBILITY_PREPARATION, 0.f
 		);
 		game.state.fighter_set_action_timer(fighter, INVISIBILITY_PREPARATION);
@@ -524,8 +524,8 @@ int consume_command(game_session& game, int connection, command::data command) {
 		}
 		printf("charge\n");
 		event_notification(
-			game, 
-			fighter, 
+			game,
+			fighter,
 			update::EVENT_START_CHARGE,
 			CHARGE_PREPARATION, 0.f
 		);
@@ -552,7 +552,7 @@ int read_from_connection (game_session& game, int connection) {
 				players_to_delete.push_back(pid);
 		});
 
-		
+
 		for (int i = 0; i < (int)players_to_delete.size(); ++i) {
 			auto pid = players_to_delete[i];
 			auto control = game.state.player_get_player_control(pid);
@@ -590,7 +590,7 @@ int main(int argc, char const* argv[]) {
 		std::cout << "Port is missing\n";
 		exit(EXIT_FAILURE);
 	}
-	
+
 	errno = 0;
 	const long port = strtol(argv[1], nullptr, 10);
 
@@ -607,10 +607,10 @@ int main(int argc, char const* argv[]) {
 		perror("UDP socket failed");
 		exit(EXIT_FAILURE);
 	}
-	
+
 	int opt = 1;
 	if(setsockopt(
-		tcp_socket, 
+		tcp_socket,
 		SOL_SOCKET,
 		SO_REUSEADDR | SO_REUSEPORT,
 		&opt,
@@ -642,7 +642,7 @@ int main(int argc, char const* argv[]) {
 	}
 
 	std::cout << "Listening\n";
-	
+
 	fd_set active_connections;
 	fd_set read_connections;
 
@@ -655,10 +655,10 @@ int main(int argc, char const* argv[]) {
 	FD_SET(udp_socket, &udp_singleton);
 
 	sockaddr_in client_address;
-		
+
 	int i;
 	size_t connection_address_size;
-	
+
 	struct timeval timeout { 0, 0 };
 
 	auto now = std::chrono::system_clock::now();
@@ -671,14 +671,14 @@ int main(int argc, char const* argv[]) {
 	game.state.create_room();
 	game.state.create_room();
 	game.state.create_room();
-		
+
 //	int counter = 1000 * 30;
 
 	int32_t timestamp = 0;
 
 	ankerl::unordered_dense::map<in_addr_t, sockaddr_in> internet_address_to_udp_address {};
 
-	
+
   	char udp_buffer[1024] = {0};
 
 	while (1) {
@@ -687,9 +687,9 @@ int main(int argc, char const* argv[]) {
 			udp_select_singleton = udp_singleton;
 
 			auto udp_has_message = select(
-				FD_SETSIZE, 
-				&udp_select_singleton, 
-				NULL, 
+				FD_SETSIZE,
+				&udp_select_singleton,
+				NULL,
 				NULL,
 				&timeout
 			);
@@ -703,8 +703,8 @@ int main(int argc, char const* argv[]) {
 				// handle UDP "subscriptions"
 				connection_address_size = sizeof(client_address);
 				auto status = recvfrom(udp_socket, udp_buffer, 1024, 0, (struct sockaddr*)&client_address, (socklen_t *) &connection_address_size);
-				
-				if (status >= 0) { 
+
+				if (status >= 0) {
 					printf("got UDP message\n");
 					internet_address_to_udp_address[client_address.sin_addr.s_addr] = client_address;
 				}
@@ -713,7 +713,7 @@ int main(int argc, char const* argv[]) {
 
 //		counter--;
 		read_connections = active_connections;
-		
+
 		// retrieve sockets which demand attention
 		if (updated = select(FD_SETSIZE, &read_connections, NULL, NULL, &timeout); updated < 0) {
 			perror("Select error");
@@ -739,7 +739,7 @@ int main(int argc, char const* argv[]) {
 					perror("Accept connection error");
 					exit(EXIT_FAILURE);
 				}
-				
+
 				fprintf(
 					stderr,
 					"SERVER: NEW CONNECTION\n"
@@ -757,7 +757,7 @@ int main(int argc, char const* argv[]) {
 				// data from established connection
 
 				if (read_from_connection(game, i) < 0) {
-					// invalid data	
+					// invalid data
 					printf("close %d\n", i);
 					close(i);
 					FD_CLR(i, &active_connections);
@@ -766,7 +766,7 @@ int main(int argc, char const* argv[]) {
 		}
 
 		auto then = std::chrono::system_clock::now();
-		
+
 		auto duration_game_state_update = std::chrono::duration_cast<std::chrono::microseconds> (
 			then - now
 		);
@@ -795,7 +795,7 @@ int main(int argc, char const* argv[]) {
 					auto player = game.state.location_get_who(player_location);
 					auto control = game.state.player_get_player_control(player);
 					auto fid = game.state.player_control_get_controlled(control);
-					
+
 					if (
 						game.state.fighter_get_invisible_timer(fid) > 0.f
 						&& fid
@@ -813,12 +813,20 @@ int main(int argc, char const* argv[]) {
 					to_send.additional_data = game.state.fighter_get_hp(fid);
 					to_send.belongs_to = game.state.fighter_get_character_class(fid);
 
+					if (
+						game.state.fighter_get_invisible_timer(fid) > 0.f
+						&& fid
+						&& player == dest
+					) {
+						to_send.flags |= 1;
+					}
+
 					sendto(
-						udp_socket, 
-						(char*)&to_send, 
-						sizeof(update::udp_data), 
+						udp_socket,
+						(char*)&to_send,
+						sizeof(update::udp_data),
 						0,
-						(sockaddr *) &(udp_address_iterator), 
+						(sockaddr *) &(udp_address_iterator),
 						sizeof(client_address)
 					);
 				});
@@ -835,7 +843,7 @@ int main(int argc, char const* argv[]) {
 
 					send(connection, (char*)&to_send, sizeof(update::data), 0);
 				});
-					
+
 				if (
 					!game.state.player_get_know_myself(dest)
 				) {
@@ -846,7 +854,7 @@ int main(int argc, char const* argv[]) {
 					to_send.update_type = update::SEND_ID;
 					send(connection, (char*)&to_send, sizeof(update::data), 0);
 				}
-				
+
 				if (
 					!game.state.player_get_know_my_body(dest)
 					&& dest_fid
@@ -857,7 +865,7 @@ int main(int argc, char const* argv[]) {
 					to_send.belongs_to = 1;
 					to_send.update_type = update::SEND_FIGHTER_ID;
 					send(connection, (char*)&to_send, sizeof(update::data), 0);
-				}				
+				}
 			});
 		}
 

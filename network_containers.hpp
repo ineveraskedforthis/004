@@ -22,7 +22,7 @@ inline constexpr uint8_t CLASS_TOTAL = 3;
 
 struct data {
 	int32_t actor;
-	int32_t target_actor;	
+	int32_t target_actor;
 	float target_x;
 	float target_y;
 	uint8_t command_type;
@@ -73,14 +73,17 @@ struct udp_data {
 	uint8_t belongs_to;
 	uint8_t additional_data;
 	uint8_t event_type;
+	int32_t flags;
 };
 }
 
 static_assert(sizeof(update::data) == 4 * 4);
+static_assert(sizeof(update::udp_data) == 6 * 4);
 
 constexpr int buffer_size = 256;
 
 static_assert(sizeof(command::data) < buffer_size);
 static_assert(sizeof(update::data) < buffer_size);
+static_assert(sizeof(update::udp_data) < buffer_size);
 
 
