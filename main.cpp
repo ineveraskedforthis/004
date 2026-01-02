@@ -449,6 +449,8 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		auto pid = game.state.fighter_get_controller_from_player_control(fid);
 		game.state.delete_fighter(fid);
 		game.state.player_set_know_my_body(pid, false);
+		auto loc = game.state.player_get_location(pid);
+		game.state.delete_location(loc);
 		event_notification_to_player(game, pid, update::EVENT_PLAYER_DIED);
 	}
 }
