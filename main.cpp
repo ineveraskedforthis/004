@@ -255,7 +255,7 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		auto dx = tx;
 		auto dy = ty;
 
-		auto rotation_speed = 0.1;
+		auto rotation_speed = 1;
 		float speed_mod = 0.7f;
 
 
@@ -898,6 +898,7 @@ int main(int argc, char const* argv[]) {
 					to_send.id = fid.index();
 					to_send.x = game.state.fighter_get_x(fid);
 					to_send.y = game.state.fighter_get_y(fid);
+					to_send.z = game.state.fighter_get_direction(fid);
 					to_send.update_type = update::FIGHTER;
 					to_send.additional_data = game.state.fighter_get_hp(fid);
 					to_send.belongs_to = game.state.fighter_get_character_class(fid);
