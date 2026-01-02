@@ -260,7 +260,7 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 
 
 		if (dx != 0 || dy != 0) {
-			auto desired_direction = atan2f(dy, dy);
+			auto desired_direction = atan2f(dy, dx);
 			auto direction = game.state.fighter_get_direction(fid);
 
 			auto diff = fmodf(desired_direction - direction + 2 * PI, 2 * PI);
