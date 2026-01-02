@@ -255,7 +255,7 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 		auto dx = tx;
 		auto dy = ty;
 
-		auto rotation_speed = 1;
+		auto rotation_speed = 3;
 		float speed_mod = 0.7f;
 
 
@@ -265,7 +265,7 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 
 			auto diff = fmodf(desired_direction - direction + 2 * PI, 2 * PI);
 
-			speed_mod *= std::max(0.f, cosf(direction - desired_direction));
+			speed_mod *= 0.1 + std::max(0.f, cosf(direction - desired_direction));
 
 			if (diff <= rotation_speed * dt) {
 				direction = desired_direction;
