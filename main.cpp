@@ -17,6 +17,7 @@ namespace std {
 #include <chrono>
 
 #include "network_containers.hpp"
+#include "unordered_dense.h"
 
 constexpr float PARRY_PREPARATION = 0.3f;
 constexpr float PARRY_DURATION = 0.3f;
@@ -192,7 +193,7 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 			dy /= norm;
 		}
 
-		float speed_mod = 0.4f;
+		float speed_mod = 0.7f;
 		float progress_mod = 1.f;
 		float progress = game.state.fighter_get_action_timer(fid);	
 
@@ -595,15 +596,21 @@ int main(int argc, char const* argv[]) {
 
 	std::cout << "Attempt to run server at " << port << "\n";
 
-	int server_socket = socket(AF_INET, SOCK_STREAM, 0);
-	if(server_socket < 0) {
-		perror("Socket failed");
+	int tcp_socket = socket(AF_INET, SOCK_STREAM, 0);
+	if(tcp_socket < 0) {
+		perror("TCP socket failed");
+		exit(EXIT_FAILURE);
+	}
+
+	int udp_socket = socket(AF_INET, SOCK_DGRAM, 0);
+	if (udp_socket < 0) {
+		perror("UDP socket failed");
 		exit(EXIT_FAILURE);
 	}
 	
 	int opt = 1;
 	if(setsockopt(
-		server_socket, 
+		tcp_socket, 
 		SOL_SOCKET,
 		SO_REUSEADDR | SO_REUSEPORT,
 		&opt,
@@ -619,13 +626,18 @@ int main(int argc, char const* argv[]) {
 	address.sin_addr.s_addr = INADDR_ANY;
 	address.sin_port = htons(port);
 
-	if(bind(server_socket, (sockaddr *) &address, address_length) < 0) {
-		perror("Bind failed");
+	if(bind(tcp_socket, (sockaddr *) &address, address_length) < 0) {
+		perror("TCP bind failed");
 		exit(EXIT_FAILURE);
 	}
 
-	if(listen(server_socket, 5) < 0 ) {
-		perror("Listen failed");
+	if(bind(udp_socket, (sockaddr *) &address, address_length) < 0) {
+		perror("UDP bind failed");
+		exit(EXIT_FAILURE);
+	}
+
+	if(listen(tcp_socket, 5) < 0 ) {
+		perror("TCP listen failed");
 		exit(EXIT_FAILURE);
 	}
 
@@ -635,7 +647,12 @@ int main(int argc, char const* argv[]) {
 	fd_set read_connections;
 
 	FD_ZERO(&active_connections);
-	FD_SET(server_socket, &active_connections);
+	FD_SET(tcp_socket, &active_connections);
+
+	fd_set udp_singleton;
+	fd_set udp_select_singleton;
+	FD_ZERO(&udp_singleton);
+	FD_SET(udp_socket, &udp_singleton);
 
 	sockaddr_in client_address;
 		
@@ -657,7 +674,43 @@ int main(int argc, char const* argv[]) {
 		
 //	int counter = 1000 * 30;
 
+	int32_t timestamp = 0;
+
+	ankerl::unordered_dense::map<in_addr_t, sockaddr_in> internet_address_to_udp_address {};
+
+	
+  	char udp_buffer[1024] = {0};
+
 	while (1) {
+
+		{
+			udp_select_singleton = udp_singleton;
+
+			auto udp_has_message = select(
+				FD_SETSIZE, 
+				&udp_select_singleton, 
+				NULL, 
+				NULL,
+				&timeout
+			);
+
+			if (udp_has_message < 0) {
+				perror("Select error (udp)");
+				exit(EXIT_FAILURE);
+			}
+
+			if (udp_has_message > 0) {
+				// handle UDP "subscriptions"
+				connection_address_size = sizeof(client_address);
+				auto status = recvfrom(udp_socket, udp_buffer, 1024, 0, (struct sockaddr*)&client_address, (socklen_t *) &connection_address_size);
+				
+				if (status >= 0) { 
+					printf("got UDP message\n");
+					internet_address_to_udp_address[client_address.sin_addr.s_addr] = client_address;
+				}
+			}
+		}
+
 //		counter--;
 		read_connections = active_connections;
 		
@@ -672,12 +725,12 @@ int main(int argc, char const* argv[]) {
 				continue;
 			}
 
-			if (i == server_socket) {
+			if (i == tcp_socket) {
 				// connection requests
 				connection_address_size = sizeof(client_address);
 
 				int new_connection = accept(
-					server_socket,
+					tcp_socket,
 					(sockaddr *) & client_address,
 					(socklen_t *) &connection_address_size
 				);
@@ -698,7 +751,7 @@ int main(int argc, char const* argv[]) {
 				}
 				auto pid = game.state.create_player();
 				game.state.player_set_connection(pid, new_connection);
-
+				game.state.player_set_address(pid, client_address.sin_addr.s_addr);
 				FD_SET(new_connection, &active_connections);
 			} else {
 				// data from established connection
@@ -720,7 +773,10 @@ int main(int argc, char const* argv[]) {
 		auto duration_network_update = std::chrono::duration_cast<std::chrono::microseconds> (
 			then - last_server_state_update
 		);
-		if (duration_network_update.count() > 1000 * 1000 / 75) {
+		if (duration_network_update.count() > 1000 * 1000 / 30) {
+			// printf("send update %ld\n", duration_network_update.count() / 1000 / 1000);
+			last_server_state_update = then;
+			timestamp++;
 			game.state.for_each_player([&](auto dest) {
 				auto connection = game.state.player_get_connection(dest);
 				if (!FD_ISSET(connection, &active_connections)) {
@@ -731,6 +787,9 @@ int main(int argc, char const* argv[]) {
 				auto lobby = game.state.location_get_where(location);
 				auto dest_control = game.state.player_get_player_control(dest);
 				auto dest_fid = game.state.player_control_get_controlled(dest_control);
+				auto internet_address = game.state.player_get_address(dest);
+
+				auto& udp_address_iterator = internet_address_to_udp_address[internet_address];
 
 				game.state.room_for_each_location(lobby, [&](auto player_location){
 					auto player = game.state.location_get_who(player_location);
@@ -739,12 +798,14 @@ int main(int argc, char const* argv[]) {
 					
 					if (
 						game.state.fighter_get_invisible_timer(fid) > 0.f
+						&& fid
 						&& player != dest
 					) {
 						return;
 					}
 
-					update::data to_send {};
+					update::udp_data to_send {};
+					to_send.timestamp = timestamp;
 					to_send.id = fid.index();
 					to_send.x = game.state.fighter_get_x(fid);
 					to_send.y = game.state.fighter_get_y(fid);
@@ -752,7 +813,14 @@ int main(int argc, char const* argv[]) {
 					to_send.additional_data = game.state.fighter_get_hp(fid);
 					to_send.belongs_to = game.state.fighter_get_character_class(fid);
 
-					send(connection, (char*)&to_send, sizeof(update::data), 0);
+					sendto(
+						udp_socket, 
+						(char*)&to_send, 
+						sizeof(update::udp_data), 
+						0,
+						(sockaddr *) &(udp_address_iterator), 
+						sizeof(client_address)
+					);
 				});
 
 				game.state.room_for_each_projectile_location(lobby, [&](auto proj_location){
@@ -789,10 +857,8 @@ int main(int argc, char const* argv[]) {
 					to_send.belongs_to = 1;
 					to_send.update_type = update::SEND_FIGHTER_ID;
 					send(connection, (char*)&to_send, sizeof(update::data), 0);
-				}
-				
+				}				
 			});
-			last_server_state_update = then;
 		}
 
 		if (duration_game_state_update.count() > 1000 * 1000 / 200) {

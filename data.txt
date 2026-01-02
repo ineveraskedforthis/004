@@ -1,4 +1,15 @@
 object{
+	name{udp_subscription}
+	size{3000}
+	storage_type{erasable}
+
+	property{
+		name{address}
+		type{uint32_t}
+	}
+}
+
+object{
 	name{fighter}
 	size{3000}
 	storage_type{erasable}
@@ -155,6 +166,10 @@ object{
 	property{
 		name{connection}
 		type{int32_t}
+	}
+	property{
+		name{address}
+		type{uint32_t}
 	}
 
 	property{
