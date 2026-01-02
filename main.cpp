@@ -263,7 +263,7 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 			auto desired_direction = atan2f(dy, dy);
 			auto direction = game.state.fighter_get_direction(fid);
 
-			auto diff = fmod(desired_direction - direction + 2 * PI, 2 * PI);
+			auto diff = fmodf(desired_direction - direction + 2 * PI, 2 * PI);
 
 			speed_mod *= std::max(0.f, cosf(direction - desired_direction));
 
@@ -277,7 +277,8 @@ void update_game_state(game_session& game, std::chrono::microseconds last_tick) 
 				direction = desired_direction;
 			}
 
-			direction = fmod(direction + 2 * PI, 2 * PI);
+			direction = fmodf(direction + 2 * PI, 2 * PI);
+			game.state.fighter_set_direction(fid, direction);
 		}
 
 		auto norm = sqrtf(dx * dx + dy * dy);
